@@ -1,0 +1,33 @@
+# Maven
+target/
+*.jar
+*.war
+*.zip
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+.flattened-pom.xml
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+*.iml
+.classpath
+.project
+.settings/
+
+# Build
+bin/
+build/
+out/
+
+# IDE specific
+nbproject/
+.nb-gradle/
