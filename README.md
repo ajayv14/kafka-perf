@@ -107,3 +107,51 @@ docker exec -it kafka-1 kafka-topics \
   --config min.insync.replicas=2
 
 
+# Then look for 
+docker exec -it kafka-1 kafka-topics \
+  --bootstrap-server kafka-1:29092 \
+  --describe \
+  --topic __transaction_state
+
+
+# if topic t_transaction_state doesnt exists
+# Check cluster metadata
+docker exec -it kafka-1 kafka-metadata-quorum \
+  --bootstrap-server kafka-1:29092 \
+  describe --replication
+
+
+zsh: command not found: #
+ClusterId:              MkU3OEVBNTcwNTJENDM2Qk
+LeaderId:               2
+LeaderEpoch:            3
+HighWatermark:          1717
+MaxFollowerLag:         0
+MaxFollowerLagTimeMs:   442
+CurrentVoters:          [{"id": 1, "endpoints": ["CONTROLLER://kafka-1:29093"]}, {"id": 2, "endpoints": ["CONTROLLER://kafka-2:29093"]}, {"id": 3, "endpoints": ["CONTROLLER://kafka-3:29093"]}]
+CurrentObservers:       []
+
+
+# Manually create the transaction state topic with your desired config
+docker exec -it kafka-1 kafka-topics \
+  --bootstrap-server kafka-1:29092 \
+  --create \
+  --topic __transaction_state \
+  --partitions 50 \
+  --replication-factor 3 \
+  --config min.insync.replicas=2 \
+  --config cleanup.policy=compact
+
+# Wait a few seconds for partition leaders to be elected
+sleep 5
+
+# Verify it's created properly
+docker exec -it kafka-1 kafka-topics \
+  --bootstrap-server kafka-1:29092 \
+  --describe \
+  --topic __transaction_state
+
+# Broker health check
+docker exec -it kafka-1 kafka-broker-api-versions \
+  --bootstrap-server kafka-1:29092
+
