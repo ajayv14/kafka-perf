@@ -104,7 +104,8 @@ docker exec -it kafka-1 kafka-topics \
   --bootstrap-server kafka-1:29092 \
   --partitions 3 \
   --replication-factor 3 \
-  --config min.insync.replicas=2
+  --config min.insync.replicas=2 \
+  --config retention.ms=3600000
 
 
 # Then look for 
