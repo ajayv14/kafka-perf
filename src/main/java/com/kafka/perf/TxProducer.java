@@ -24,6 +24,8 @@ public class TxProducer {
     private static final int NUM_ITERATIONS = 10;
     private static final long INTER_TEST_DELAY_MS = 5000;
     private static final String TOPIC = "eos-topic";
+    private static boolean txnEnabled = false;
+    private static int txnBatchSize = 1000;
 
     public static void main(String[] args) throws Exception {
 
@@ -59,8 +61,8 @@ public class TxProducer {
                 benchmarkProps.getProperty("transactional.id"));
 
         // Transaction control
-        props.put("transaction.enabled", benchmarkProps.getProperty("transaction.enabled", "false"));
-        props.put("txn.batch.size", benchmarkProps.getProperty("txn.batch.size", "1000"));
+        txnEnabled = Boolean.parseBoolean(benchmarkProps.getProperty("transaction.enabled", "false"));
+        txnBatchSize = Integer.parseInt(benchmarkProps.getProperty("txn.batch.size", "1000"));
 
         // Performance tuning
         props.put(ProducerConfig.LINGER_MS_CONFIG,
@@ -144,7 +146,8 @@ public class TxProducer {
         long runStartNs = txnStartNs;
 
         try {
-            producer.beginTransaction();
+
+            if (txnEnabled) producer.beginTransaction();
 
             for (int i = 0; i < NUM_RECORDS; i++) {
                 ProducerRecord<String, String> record =
@@ -167,10 +170,18 @@ public class TxProducer {
                         exception.printStackTrace();
                     }
                 });
+
+                // Commit transaction at batch boundaries if transactions are enabled
+                if (txnEnabled && (i + 1) % txnBatchSize == 0) {
+                    producer.commitTransaction();
+                    if (i + 1 < NUM_RECORDS) {
+                        producer.beginTransaction();
+                    }
+                }
             }
 
             latch.await(); // wait for all acks
-            producer.commitTransaction();
+            if (txnEnabled) producer.commitTransaction();
 
         } catch (ProducerFencedException |
                  OutOfOrderSequenceException |
@@ -180,7 +191,7 @@ public class TxProducer {
             throw fatal;
 
         } catch (KafkaException e) {
-            producer.abortTransaction();
+            if (txnEnabled) producer.abortTransaction();
             throw e;
         } finally {
             producer.close();
