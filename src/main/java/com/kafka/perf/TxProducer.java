@@ -1,7 +1,6 @@
 package com.kafka.perf;
 
 import java.io.FileInputStream;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
@@ -51,23 +50,27 @@ public class TxProducer {
         props.put(ProducerConfig.ACKS_CONFIG,
                 benchmarkProps.getProperty("acks"));
         props.put(ProducerConfig.RETRIES_CONFIG,
-                Integer.parseInt(benchmarkProps.getProperty("retries")));
+                benchmarkProps.getProperty("retries"));
         props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
-                Integer.parseInt(benchmarkProps.getProperty("max.in.flight.requests.per.connection")));
+                benchmarkProps.getProperty("max.in.flight.requests.per.connection"));
 
         // Transaction
         props.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG,
                 benchmarkProps.getProperty("transactional.id"));
 
+        // Transaction control
+        props.put("transaction.enabled", benchmarkProps.getProperty("transaction.enabled", "false"));
+        props.put("txn.batch.size", benchmarkProps.getProperty("txn.batch.size", "1000"));
+
         // Performance tuning
         props.put(ProducerConfig.LINGER_MS_CONFIG,
-                Long.parseLong(benchmarkProps.getProperty("linger.ms")));
+                benchmarkProps.getProperty("linger.ms"));
         props.put(ProducerConfig.BATCH_SIZE_CONFIG,
-                Integer.parseInt(benchmarkProps.getProperty("batch.size")));
+                benchmarkProps.getProperty("batch.size"));
         props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG,
                 benchmarkProps.getProperty("compression"));
         props.put(ProducerConfig.BUFFER_MEMORY_CONFIG,
-                Long.parseLong(benchmarkProps.getProperty("buffer.memory")));
+                benchmarkProps.getProperty("buffer.memory"));
 
         // Store results across iterations
         List<ProducerMetricsUtil.IterationResult> results = new ArrayList<>();
@@ -223,3 +226,6 @@ public class TxProducer {
 
         return result;
     }
+
+
+}
