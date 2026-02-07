@@ -59,29 +59,7 @@ public class ProducerMetricsUtil {
         printLatencyStats("p99.9", results.stream().mapToDouble(r -> r.p999Latency).toArray());
         printLatencyStats("Max", results.stream().mapToDouble(r -> r.maxLatency).toArray());
 
-        // Batch size statistics
-        DoubleSummaryStatistics avgBatchStats = results.stream()
-                .mapToDouble(r -> r.avgBatchSize)
-                .summaryStatistics();
-        DoubleSummaryStatistics maxBatchStats = results.stream()
-                .mapToDouble(r -> r.maxBatchSize)
-                .summaryStatistics();
-
-        System.out.println("\n-- Batch Size (bytes) --");
-        System.out.printf("Avg batch size: %.2f ± %.2f bytes%n",
-                avgBatchStats.getAverage(),
-                calculateListStdDev(
-                        results.stream().mapToDouble(r -> r.avgBatchSize).toArray(),
-                        avgBatchStats.getAverage()
-                )
-        );
-        System.out.printf("Max batch size: %.2f ± %.2f bytes%n",
-                maxBatchStats.getAverage(),
-                calculateListStdDev(
-                        results.stream().mapToDouble(r -> r.maxBatchSize).toArray(),
-                        maxBatchStats.getAverage()
-                )
-        );
+        // Batch size statistics removed
 
         System.out.println("\n" + "=".repeat(70));
         System.out.println("\nNOTE: Collect broker-side metrics separately using JMX or monitoring tools.");
@@ -93,12 +71,11 @@ public class ProducerMetricsUtil {
             // Write header
             writer.println("iteration,throughput_rec_per_sec,txn_duration_ms," +
                     "min_latency_ms,avg_latency_ms,stddev_latency_ms," +
-                    "p50_latency_ms,p95_latency_ms,p99_latency_ms,p999_latency_ms,max_latency_ms," +
-                    "avg_batch_size_bytes,max_batch_size_bytes");
+                    "p50_latency_ms,p95_latency_ms,p99_latency_ms,p999_latency_ms,max_latency_ms");
 
             // Write data
             for (IterationResult result : results) {
-                writer.printf("%d,%.2f,%.2f,%d,%.2f,%.2f,%d,%d,%d,%d,%d,%.2f,%.2f%n",
+                writer.printf("%d,%.2f,%.2f,%d,%.2f,%.2f,%d,%d,%d,%d,%d%n",
                         result.iteration,
                         result.throughput,
                         result.txnDurationMs,
@@ -109,9 +86,7 @@ public class ProducerMetricsUtil {
                         result.p95Latency,
                         result.p99Latency,
                         result.p999Latency,
-                        result.maxLatency,
-                        result.avgBatchSize,
-                        result.maxBatchSize
+                        result.maxLatency
                 );
             }
         } catch (IOException e) {
@@ -149,12 +124,7 @@ public class ProducerMetricsUtil {
             double[] p999Latencies = results.stream().mapToDouble(r -> r.p999Latency).toArray();
             double[] maxLatencies = results.stream().mapToDouble(r -> r.maxLatency).toArray();
 
-            DoubleSummaryStatistics avgBatchStats = results.stream()
-                    .mapToDouble(r -> r.avgBatchSize)
-                    .summaryStatistics();
-            DoubleSummaryStatistics maxBatchStats = results.stream()
-                    .mapToDouble(r -> r.maxBatchSize)
-                    .summaryStatistics();
+            // Batch size statistics removed
 
             // Write metadata
             writer.println("# Kafka Performance Test Summary");
@@ -193,25 +163,7 @@ public class ProducerMetricsUtil {
             writeLatencyStatRow(writer, "p999_latency_ms", p999Latencies);
             writeLatencyStatRow(writer, "max_latency_ms", maxLatencies);
 
-            writer.println();
-            writer.println("# Batch Size Statistics (bytes)");
-            writer.println("batch_metric,mean,stddev");
-            
-            writer.printf("avg_batch_size_bytes,%.2f,%.2f%n",
-                    avgBatchStats.getAverage(),
-                    calculateListStdDev(
-                            results.stream().mapToDouble(r -> r.avgBatchSize).toArray(),
-                            avgBatchStats.getAverage()
-                    )
-            );
-
-            writer.printf("max_batch_size_bytes,%.2f,%.2f%n",
-                    maxBatchStats.getAverage(),
-                    calculateListStdDev(
-                            results.stream().mapToDouble(r -> r.maxBatchSize).toArray(),
-                            maxBatchStats.getAverage()
-                    )
-            );
+            // Batch size statistics removed
 
         } catch (IOException e) {
             System.err.println("Error writing summary CSV: " + e.getMessage());
@@ -269,40 +221,35 @@ public class ProducerMetricsUtil {
         return Math.sqrt(sumSquaredDiff / values.length);
     }
 
-    // Inner class to store iteration results
-    public static class IterationResult {
-        public int iteration;
-        public double throughput;
-        public double txnDurationMs;
-        public long minLatency;
-        public double avgLatency;
-        public double stdDevLatency;
-        public long p50Latency;
-        public long p95Latency;
-        public long p99Latency;
-        public long p999Latency;
-        public long maxLatency;
-        public double avgBatchSize;
-        public double maxBatchSize;
+        // Inner class to store iteration results
+        public static class IterationResult {
+                public int iteration;
+                public double throughput;
+                public double txnDurationMs;
+                public long minLatency;
+                public double avgLatency;
+                public double stdDevLatency;
+                public long p50Latency;
+                public long p95Latency;
+                public long p99Latency;
+                public long p999Latency;
+                public long maxLatency;
 
-        public IterationResult(int iteration, double throughput, double txnDurationMs,
-                        long minLatency, double avgLatency, double stdDevLatency,
-                        long p50Latency, long p95Latency, long p99Latency,
-                        long p999Latency, long maxLatency,
-                        double avgBatchSize, double maxBatchSize) {
-            this.iteration = iteration;
-            this.throughput = throughput;
-            this.txnDurationMs = txnDurationMs;
-            this.minLatency = minLatency;
-            this.avgLatency = avgLatency;
-            this.stdDevLatency = stdDevLatency;
-            this.p50Latency = p50Latency;
-            this.p95Latency = p95Latency;
-            this.p99Latency = p99Latency;
-            this.p999Latency = p999Latency;
-            this.maxLatency = maxLatency;
-            this.avgBatchSize = avgBatchSize;
-            this.maxBatchSize = maxBatchSize;
+                public IterationResult(int iteration, double throughput, double txnDurationMs,
+                                                long minLatency, double avgLatency, double stdDevLatency,
+                                                long p50Latency, long p95Latency, long p99Latency,
+                                                long p999Latency, long maxLatency) {
+                        this.iteration = iteration;
+                        this.throughput = throughput;
+                        this.txnDurationMs = txnDurationMs;
+                        this.minLatency = minLatency;
+                        this.avgLatency = avgLatency;
+                        this.stdDevLatency = stdDevLatency;
+                        this.p50Latency = p50Latency;
+                        this.p95Latency = p95Latency;
+                        this.p99Latency = p99Latency;
+                        this.p999Latency = p999Latency;
+                        this.maxLatency = maxLatency;
+                }
         }
-    }
 }

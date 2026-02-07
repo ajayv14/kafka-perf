@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Properties;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 
 import org.apache.kafka.clients.producer.KafkaProducer;
@@ -33,6 +32,9 @@ public class TxProducer {
         Properties benchmarkProps = new Properties();
         try (FileInputStream fis = new FileInputStream("src/main/resources/benchmark.properties")) {
             benchmarkProps.load(fis);
+        } catch (Exception e) {
+            System.err.println("Error loading benchmark.properties: " + e.getMessage());
+            throw e;
         }
 
         // Build Kafka producer properties
@@ -46,33 +48,50 @@ public class TxProducer {
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
                 benchmarkProps.getProperty("value.serializer"));
 
-        // EOS essentials
-        props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG,
-                benchmarkProps.getProperty("enable.idempotence"));
-        props.put(ProducerConfig.ACKS_CONFIG,
-                benchmarkProps.getProperty("acks"));
-        props.put(ProducerConfig.RETRIES_CONFIG,
-                benchmarkProps.getProperty("retries"));
-        props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
-                benchmarkProps.getProperty("max.in.flight.requests.per.connection"));
+        // Transaction control - parse first to determine configuration strategy
+        txnEnabled = Boolean.parseBoolean(
+                benchmarkProps.getProperty("transaction.enabled", "false").trim().toLowerCase()
+        );
+        txnBatchSize = Integer.parseInt(
+                benchmarkProps.getProperty("txn.batch.size", "1000")
+        );
 
-        // Transaction
-        props.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG,
-                benchmarkProps.getProperty("transactional.id"));
+        // Configure based on transaction mode
+        if (txnEnabled) {
+            // Transaction mode - force EOS settings
+            props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, "true");
+            props.put(ProducerConfig.ACKS_CONFIG, "all");
+            props.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
+            props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 5);
+            
+            // CRITICAL: Only set transactional ID when transactions are enabled
+            props.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG,
+                    benchmarkProps.getProperty("transactional.id"));
+            
+            System.out.println("Transaction mode: ENABLED");
+        } else {
+            // Non-transaction mode - use config file settings
+            props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG,
+                    benchmarkProps.getProperty("enable.idempotence", "false"));
+            props.put(ProducerConfig.ACKS_CONFIG,
+                    benchmarkProps.getProperty("acks", "1"));
+            props.put(ProducerConfig.RETRIES_CONFIG,
+                    benchmarkProps.getProperty("retries", "0"));
+            props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
+                    benchmarkProps.getProperty("max.in.flight.requests.per.connection", "5"));
+            
+            System.out.println("Transaction mode: DISABLED");
+        }
 
-        // Transaction control
-        txnEnabled = Boolean.parseBoolean(benchmarkProps.getProperty("transaction.enabled", "false"));
-        txnBatchSize = Integer.parseInt(benchmarkProps.getProperty("txn.batch.size", "1000"));
-
-        // Performance tuning
+        // Performance tuning (common to both modes)
         props.put(ProducerConfig.LINGER_MS_CONFIG,
-                benchmarkProps.getProperty("linger.ms"));
+                benchmarkProps.getProperty("linger.ms", "10"));
         props.put(ProducerConfig.BATCH_SIZE_CONFIG,
-                benchmarkProps.getProperty("batch.size"));
+                benchmarkProps.getProperty("batch.size", "32768"));
         props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG,
-                benchmarkProps.getProperty("compression"));
+                benchmarkProps.getProperty("compression", "lz4"));
         props.put(ProducerConfig.BUFFER_MEMORY_CONFIG,
-                benchmarkProps.getProperty("buffer.memory"));
+                benchmarkProps.getProperty("buffer.memory", "67108864"));
 
         // Store results across iterations
         List<ProducerMetricsUtil.IterationResult> results = new ArrayList<>();
@@ -86,6 +105,7 @@ public class TxProducer {
         System.out.printf("Iterations: %d%n", NUM_ITERATIONS);
         System.out.printf("Records per iteration: %d%n", NUM_RECORDS);
         System.out.printf("Warmup records: %d%n", WARMUP_RECORDS);
+        System.out.printf("Transaction batch size: %d (currently unused)%n", txnBatchSize);
         System.out.printf("Results will be saved to:%n");
         System.out.printf("  - %s%n", iterationsCsvFile);
         System.out.printf("  - %s%n%n", summaryCsvFile);
@@ -116,22 +136,37 @@ public class TxProducer {
 
     private static ProducerMetricsUtil.IterationResult runIteration(Properties props, int iterationNum) throws Exception {
         KafkaProducer<String, String> producer = new KafkaProducer<>(props);
-        producer.initTransactions();
+        
+        // CRITICAL FIX: Only initialize transactions when enabled
+        if (txnEnabled) {
+            producer.initTransactions();
+        }
 
         // Warmup phase
         if (iterationNum == 1) {
             System.out.printf("Warmup: sending %d records...%n", WARMUP_RECORDS);
             try {
-                producer.beginTransaction();
+                // FIX: Conditional transaction begin in warmup
+                if (txnEnabled) producer.beginTransaction();
+                
                 for (int i = 0; i < WARMUP_RECORDS; i++) {
                     ProducerRecord<String, String> record =
                             new ProducerRecord<>(TOPIC, "warmup-key", "warmup-value");
                     producer.send(record);
                 }
-                producer.commitTransaction();
+                
+                // FIX: Conditional transaction commit in warmup
+                if (txnEnabled) producer.commitTransaction();
                 System.out.println("Warmup completed.");
             } catch (KafkaException e) {
-                producer.abortTransaction();
+                // FIX: Conditional transaction abort in warmup
+                if (txnEnabled) {
+                    try {
+                        producer.abortTransaction();
+                    } catch (IllegalStateException | ProducerFencedException ex) {
+                        System.err.println("Could not abort transaction: " + ex.getMessage());
+                    }
+                }
                 throw e;
             }
             Thread.sleep(1000);
@@ -139,7 +174,6 @@ public class TxProducer {
 
         // Measured run
         Queue<Long> latenciesMs = new ConcurrentLinkedQueue<>();
-        List<Integer> batchSizes = new CopyOnWriteArrayList<>();
         CountDownLatch latch = new CountDownLatch(NUM_RECORDS);
 
         long txnStartNs = System.nanoTime();
@@ -159,25 +193,12 @@ public class TxProducer {
                     long latencyMs = (System.nanoTime() - sendStartNs) / 1_000_000;
                     latenciesMs.add(latencyMs);
                     
-                    // Track batch/record size
-                    if (metadata != null) {
-                        batchSizes.add(metadata.serializedValueSize() + metadata.serializedKeySize());
-                    }
-                    
                     latch.countDown();
 
                     if (exception != null) {
                         exception.printStackTrace();
                     }
                 });
-
-                // Commit transaction at batch boundaries if transactions are enabled
-                if (txnEnabled && (i + 1) % txnBatchSize == 0) {
-                    producer.commitTransaction();
-                    if (i + 1 < NUM_RECORDS) {
-                        producer.beginTransaction();
-                    }
-                }
             }
 
             latch.await(); // wait for all acks
@@ -191,7 +212,14 @@ public class TxProducer {
             throw fatal;
 
         } catch (KafkaException e) {
-            if (txnEnabled) producer.abortTransaction();
+            if (txnEnabled) {
+                try {
+                    producer.abortTransaction();
+                } catch (IllegalStateException | ProducerFencedException ex) {
+                    // Transaction is already in a terminal state, just log and continue
+                    System.err.println("Could not abort transaction: " + ex.getMessage());
+                }
+            }
             throw e;
         } finally {
             producer.close();
@@ -217,18 +245,11 @@ public class TxProducer {
         double avg = sortedLatencies.stream().mapToLong(Long::longValue).average().orElse(0);
         double stddev = ProducerMetricsUtil.calculateStdDev(sortedLatencies, avg);
 
-        // Batch size statistics
-        java.util.IntSummaryStatistics batchStats = batchSizes.stream()
-                .mapToInt(Integer::intValue)
-                .summaryStatistics();
-
         ProducerMetricsUtil.IterationResult result = new ProducerMetricsUtil.IterationResult(
-                iterationNum,
-                throughput,
-                txnDurationMs,
-                min, avg, stddev, p50, p95, p99, p999, max,
-                batchStats.getAverage(),
-                batchStats.getMax()
+            iterationNum,
+            throughput,
+            txnDurationMs,
+            min, avg, stddev, p50, p95, p99, p999, max
         );
 
         // Print iteration results
