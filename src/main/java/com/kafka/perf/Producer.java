@@ -16,7 +16,7 @@ import org.apache.kafka.common.errors.AuthorizationException;
 import org.apache.kafka.common.errors.OutOfOrderSequenceException;
 import org.apache.kafka.common.errors.ProducerFencedException;
 
-public class TxProducer {
+public class Producer {
 
     private static final int WARMUP_RECORDS = 10000;
     private static final int NUM_RECORDS = 100000;

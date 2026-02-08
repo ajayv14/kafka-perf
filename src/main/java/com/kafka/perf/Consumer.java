@@ -14,7 +14,7 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.Metric;
 import org.apache.kafka.common.MetricName;
 
-public class EOSConsumer {
+public class Consumer {
 
     public static void main(String[] args) {
 
