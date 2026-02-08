@@ -96,15 +96,16 @@ kafka-1:29092 (id: 1 rack: null isFenced: false) -> (
 
 
 
-EOS topics creation:
+# EOS topics creation:
 
 docker exec -it kafka-1 kafka-topics \
-  --create \
-  --topic eos-topic \
-  --bootstrap-server kafka-1:29092 \
-  --partitions 3 \
-  --replication-factor 3 \
-  --config min.insync.replicas=2
+--create \
+--topic eos-topic \
+--bootstrap-server kafka-1:29092 \
+--partitions 3 \
+--replication-factor 3 \
+--config min.insync.replicas=2 \
+--config retention.ms=3600000
 
 
 # Then look for 
@@ -155,3 +156,10 @@ docker exec -it kafka-1 kafka-topics \
 docker exec -it kafka-1 kafka-broker-api-versions \
   --bootstrap-server kafka-1:29092
 
+# Topic Deletion
+docker exec -it kafka-1 kafka-topics \
+  --delete \
+  --topic eos-topic \
+  --bootstrap-server kafka-1:29092 
+
+ 
