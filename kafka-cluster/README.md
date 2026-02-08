@@ -96,7 +96,7 @@ kafka-1:29092 (id: 1 rack: null isFenced: false) -> (
 
 
 
-EOS topics creation:
+# EOS topics creation:
 
 docker exec -it kafka-1 kafka-topics \
   --create \
@@ -108,11 +108,25 @@ docker exec -it kafka-1 kafka-topics \
   --config retention.ms=3600000
 
 
-# Then look for 
+# Verify transaction state topic (autocreated)
 docker exec -it kafka-1 kafka-topics \
   --bootstrap-server kafka-1:29092 \
   --describe \
   --topic __transaction_state
+
+
+# Cleanup
+
+# Topic Deletion
+docker exec -it kafka-1 kafka-topics \
+  --delete \
+  --topic eos-topic \
+  --bootstrap-server kafka-1:29092 
+
+
+
+
+# Troubleshooting Tips
 
 
 # if topic t_transaction_state doesnt exists
