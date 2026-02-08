@@ -1,4 +1,4 @@
-package com.kafka.perf;
+package com.kafka.perf.baseline;
 
 import java.io.FileWriter;
 import java.io.IOException;
@@ -8,7 +8,7 @@ import java.util.Date;
 import java.util.DoubleSummaryStatistics;
 import java.util.List;
 
-public class ProducerMetricsUtil {
+public class MetricsUtil {
 
     private static final int NUM_RECORDS = 100000;
 

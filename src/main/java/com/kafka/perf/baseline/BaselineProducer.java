@@ -1,4 +1,4 @@
-package com.kafka.perf;
+package com.kafka.perf.baseline;
 
 import java.io.FileInputStream;
 import java.util.ArrayList;
@@ -16,7 +16,7 @@ import org.apache.kafka.common.errors.AuthorizationException;
 import org.apache.kafka.common.errors.OutOfOrderSequenceException;
 import org.apache.kafka.common.errors.ProducerFencedException;
 
-public class Producer {
+public class BaselineProducer {
 
     private static final int WARMUP_RECORDS = 10000;
     private static final int NUM_RECORDS = 100000;
@@ -94,7 +94,7 @@ public class Producer {
                 benchmarkProps.getProperty("buffer.memory", "67108864"));
 
         // Store results across iterations
-        List<ProducerMetricsUtil.IterationResult> results = new ArrayList<>();
+        List<MetricsUtil.IterationResult> results = new ArrayList<>();
 
         // Generate timestamp for file names
         String timestamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new java.util.Date());
@@ -113,7 +113,7 @@ public class Producer {
         for (int iter = 1; iter <= NUM_ITERATIONS; iter++) {
             System.out.printf("==== Starting Iteration %d/%d ====%n", iter, NUM_ITERATIONS);
             
-            ProducerMetricsUtil.IterationResult result = runIteration(props, iter);
+            MetricsUtil.IterationResult result = runIteration(props, iter);
             results.add(result);
             
             if (iter < NUM_ITERATIONS) {
@@ -123,18 +123,18 @@ public class Producer {
         }
 
         // Print summary statistics
-        ProducerMetricsUtil.printSummaryStatistics(results);
+        MetricsUtil.printSummaryStatistics(results);
 
         // Export to CSV
-        ProducerMetricsUtil.exportIterationsToCSV(results, iterationsCsvFile);
-        ProducerMetricsUtil.exportSummaryToCSV(results, summaryCsvFile);
+        MetricsUtil.exportIterationsToCSV(results, iterationsCsvFile);
+        MetricsUtil.exportSummaryToCSV(results, summaryCsvFile);
 
         System.out.printf("%nResults successfully exported to:%n");
         System.out.printf("  - %s%n", iterationsCsvFile);
         System.out.printf("  - %s%n", summaryCsvFile);
     }
 
-    private static ProducerMetricsUtil.IterationResult runIteration(Properties props, int iterationNum) throws Exception {
+    private static MetricsUtil.IterationResult runIteration(Properties props, int iterationNum) throws Exception {
         KafkaProducer<String, String> producer = new KafkaProducer<>(props);
         
         // CRITICAL FIX: Only initialize transactions when enabled
@@ -237,15 +237,15 @@ public class Producer {
         double throughput = NUM_RECORDS / runSeconds;
 
         long min = sortedLatencies.get(0);
-        long p50 = ProducerMetricsUtil.percentile(sortedLatencies, 50);
-        long p95 = ProducerMetricsUtil.percentile(sortedLatencies, 95);
-        long p99 = ProducerMetricsUtil.percentile(sortedLatencies, 99);
-        long p999 = ProducerMetricsUtil.percentile(sortedLatencies, 99.9);
+        long p50 = MetricsUtil.percentile(sortedLatencies, 50);
+        long p95 = MetricsUtil.percentile(sortedLatencies, 95);
+        long p99 = MetricsUtil.percentile(sortedLatencies, 99);
+        long p999 = MetricsUtil.percentile(sortedLatencies, 99.9);
         long max = sortedLatencies.get(sortedLatencies.size() - 1);
         double avg = sortedLatencies.stream().mapToLong(Long::longValue).average().orElse(0);
-        double stddev = ProducerMetricsUtil.calculateStdDev(sortedLatencies, avg);
+        double stddev = MetricsUtil.calculateStdDev(sortedLatencies, avg);
 
-        ProducerMetricsUtil.IterationResult result = new ProducerMetricsUtil.IterationResult(
+        MetricsUtil.IterationResult result = new MetricsUtil.IterationResult(
             iterationNum,
             throughput,
             txnDurationMs,
