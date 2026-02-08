@@ -1,12 +1,13 @@
 version: "3.9"
 
 services:
-  kafka-1:
+  kafka-broker-1:
     image: confluentinc/cp-kafka:latest
     container_name: kafka-1
     hostname: kafka-1
     ports:
       - "9092:9092"
+      - "10000:10000"
     environment:
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
 
@@ -29,9 +30,9 @@ services:
 
       # JMX Configuration
       KAFKA_JMX_PORT: 10000
-      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_JMX_HOSTNAME: kafka-1
       KAFKA_JMX_OPTS: >-
-        -Djava.rmi.server.hostname=localhost
+        -Djava.rmi.server.hostname=kafka-1
         -Dcom.sun.management.jmxremote
         -Dcom.sun.management.jmxremote.authenticate=false
         -Dcom.sun.management.jmxremote.ssl=false
@@ -42,12 +43,13 @@ services:
     volumes:
       - kafka1_:/var/lib/kafka/data
 
-  kafka-2:
+  kafka-broker-2:
     image: confluentinc/cp-kafka:latest
     container_name: kafka-2
     hostname: kafka-2
     ports:
-      - "9093:9093" 
+      - "9093:9093"
+      - "10001:10000" 
     environment:
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
 
@@ -68,9 +70,9 @@ services:
 
       # JMX Configuration
       KAFKA_JMX_PORT: 10000
-      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_JMX_HOSTNAME: kafka-2
       KAFKA_JMX_OPTS: >-
-        -Djava.rmi.server.hostname=localhost
+        -Djava.rmi.server.hostname=kafka-2
         -Dcom.sun.management.jmxremote
         -Dcom.sun.management.jmxremote.authenticate=false
         -Dcom.sun.management.jmxremote.ssl=false
@@ -79,12 +81,13 @@ services:
     volumes:
       - kafka2_:/var/lib/kafka/data
 
-  kafka-3:
+  kafka-broker3:
     image: confluentinc/cp-kafka:latest
     container_name: kafka-3
     hostname: kafka-3
     ports:
-      - "9094:9094" 
+      - "9094:9094"
+      - "10002:10000" 
     environment:
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
 
@@ -106,9 +109,9 @@ services:
 
       # JMX Configuration
       KAFKA_JMX_PORT: 10000
-      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_JMX_HOSTNAME: kafka-3
       KAFKA_JMX_OPTS: >-
-        -Djava.rmi.server.hostname=localhost
+        -Djava.rmi.server.hostname=kafka-3
         -Dcom.sun.management.jmxremote
         -Dcom.sun.management.jmxremote.authenticate=false
         -Dcom.sun.management.jmxremote.ssl=false
@@ -123,11 +126,11 @@ services:
     ports:
       - "9000:9000"
     environment:
-      KAFKA_BROKERCONNECT: "kafka-1:29092"
+      KAFKA_BROKERCONNECT: "kafka-broker1:29092"
     depends_on:
-      - kafka-1
-      - kafka-2
-      - kafka-3
+      - kafka-broker-1
+      - kafka-broker-2
+      - kafka-broker3
 
 volumes:
   kafka1_:
