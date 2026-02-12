@@ -40,6 +40,14 @@ services:
 
       
 
+    resources:
+      limits:
+        cpus: '1'
+        memory: 1G
+      reservations:
+        cpus: '1'
+        memory: 1G
+
     volumes:
       - kafka1_:/var/lib/kafka/data
 
@@ -77,6 +85,14 @@ services:
         -Dcom.sun.management.jmxremote.authenticate=false
         -Dcom.sun.management.jmxremote.ssl=false
         -Dcom.sun.management.jmxremote.rmi.port=10000
+
+    resources:
+      limits:
+        cpus: '1'
+        memory: 1G
+      reservations:
+        cpus: '1'
+        memory: 1G
 
     volumes:
       - kafka2_:/var/lib/kafka/data
@@ -117,6 +133,14 @@ services:
         -Dcom.sun.management.jmxremote.ssl=false
         -Dcom.sun.management.jmxremote.rmi.port=10000
 
+    resources:
+      limits:
+        cpus: '1'
+        memory: 1G
+      reservations:
+        cpus: '1'
+        memory: 1G
+
     volumes:
       - kafka3_:/var/lib/kafka/data
 
@@ -131,6 +155,13 @@ services:
       - kafka-broker-1
       - kafka-broker-2
       - kafka-broker3
+    resources:
+      limits:
+        cpus: '0.5'
+        memory: 512M
+      reservations:
+        cpus: '0.25'
+        memory: 256M
 
 volumes:
   kafka1_:
