@@ -3,7 +3,8 @@
 # Replace <KAFKA_MACHINE_IP> with your actual Kafka machine IP address
 
 global:
-  scrape_interval: 15s
+  scrape_interval: 30s
+  scrape_timeout: 25s
   evaluation_interval: 15s
   external_labels:
     cluster: 'kafka-research'
@@ -18,7 +19,7 @@ scrape_configs:
   # cAdvisor - Container CPU metrics from Kafka machine
   - job_name: 'cadvisor'
     static_configs:
-      - targets: ['<KAFKA_MACHINE_IP>:8080']
+      - targets: ['192.168.1.97:8080']
     metric_relabel_configs:
       # Keep only CPU-related metrics
       - source_labels: [__name__]
@@ -32,7 +33,7 @@ scrape_configs:
   # Node Exporter - Host system metrics from Kafka machine
   - job_name: 'node-exporter'
     static_configs:
-      - targets: ['<KAFKA_MACHINE_IP>:9100']
+      - targets: ['192.168.1.97:9100']
     metric_relabel_configs:
       - source_labels: [__name__]
         regex: '(node_cpu_.*|node_memory_.*|node_load.*|node_context_switches.*|node_intr.*)'
@@ -41,7 +42,7 @@ scrape_configs:
   # Kafka JMX Exporter - Broker 1
   - job_name: 'kafka-jmx-1'
     static_configs:
-      - targets: ['<KAFKA_MACHINE_IP>:7071']
+      - targets: ['192.168.1.97:7071']
         labels:
           broker_id: '1'
           instance: 'kafka-1'
@@ -49,7 +50,7 @@ scrape_configs:
   # Kafka JMX Exporter - Broker 2
   - job_name: 'kafka-jmx-2'
     static_configs:
-      - targets: ['<KAFKA_MACHINE_IP>:7072']
+      - targets: ['192.168.1.97:7072']
         labels:
           broker_id: '2'
           instance: 'kafka-2'
@@ -57,7 +58,7 @@ scrape_configs:
   # Kafka JMX Exporter - Broker 3
   - job_name: 'kafka-jmx-3'
     static_configs:
-      - targets: ['<KAFKA_MACHINE_IP>:7073']
+      - targets: ['192.168.1.97:7073']
         labels:
           broker_id: '3'
           instance: 'kafka-3'
