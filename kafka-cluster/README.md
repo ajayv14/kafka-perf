@@ -1,5 +1,48 @@
-docker compose up -d
 
+Setup Instructions
+
+Kafka Machine Setup
+
+Step 1: Download JMX Exporter
+bashmkdir -p jmx-exporter
+cd jmx-exporter
+wget https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/0.20.0/jmx_prometheus_javaagent-0.20.0.jar
+cd ..
+
+Step 2: Create JMX Configuration
+Copy the jmx-exporter-config.yml file to jmx-exporter/kafka-config.yml
+
+Step 3: Deploy Kafka + Exporters
+docker-compose up -d
+
+# Verify all containers are running
+You should see:
+
+kafka-1
+kafka-2
+kafka-3
+cadvisor
+node-exporter
+
+Step 4: Configure Firewall (if needed)
+bash# Allow monitoring machine to scrape metrics
+sudo ufw allow from <MONITORING_MACHINE_IP> to any port 8080
+sudo ufw allow from <MONITORING_MACHINE_IP> to any port 9100
+sudo ufw allow from <MONITORING_MACHINE_IP> to any port 7071
+sudo ufw allow from <MONITORING_MACHINE_IP> to any port 7072
+sudo ufw allow from <MONITORING_MACHINE_IP> to any port 7073
+S
+
+tep 5: Verify Metrics Endpoints
+bash# Test locally (should return metrics)
+curl http://localhost:8080/metrics | head -20
+curl http://localhost:9100/metrics | head -20
+curl http://localhost:7071/metrics | grep kafka_process
+
+
+
+
+Experiment setup :
 
 #verify cluster
 docker exec -it kafka-1 kafka-topics \
