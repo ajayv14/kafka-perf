@@ -29,6 +29,13 @@
             <version>${kafka.version}</version>
         </dependency>
 
+            <!-- Postgres JDBC driver for sink DB writes -->
+            <dependency>
+                <groupId>org.postgresql</groupId>
+                <artifactId>postgresql</artifactId>
+                <version>42.6.0</version>
+            </dependency>
+
         <!-- Logging -->
         <dependency>
             <groupId>org.slf4j</groupId>

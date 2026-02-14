@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: pg-sink
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: eos_sink
+      POSTGRES_USER: eos
+      POSTGRES_PASSWORD: eos
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    command:
+      - "postgres"
+      - "-c"
+      - "synchronous_commit=on"
+      - "-c"
+      - "max_connections=100"
+
+volumes:
+  pgdata:
