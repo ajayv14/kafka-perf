@@ -142,9 +142,17 @@ kafka-1:29092 (id: 1 rack: null isFenced: false) -> (
 
 
 
+python3 -m venv kafka-perf-venv
+source kafka-perf-venv/bin/activate
+pip install kafka-python
+python3 create_topic.py
+
+pip install kafka-python
+python3 create_topic.py
+
 # EOS topics creation:
 
-  docker exec -it kafka-1 kafka-topics \
+  docker exec -it kafka-1 kafka-topics.sh \
     --create \
     --topic eos-topic \
     --bootstrap-server kafka-1:29092 \
