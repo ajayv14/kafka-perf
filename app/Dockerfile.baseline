@@ -1,0 +1,43 @@
+# Dockerfile for Kafka BaselineConsumer
+
+# Build stage
+FROM maven:3.9-eclipse-temurin-17 AS builder
+
+WORKDIR /app
+
+# Copy pom.xml and download dependencies
+COPY pom.xml .
+RUN mvn dependency:go-offline -DskipTests || true
+
+# Copy source code
+COPY src ./src
+
+# Build the application
+RUN mvn clean package -DskipTests -q
+
+# Runtime stage
+FROM eclipse-temurin:17-jre-jammy
+
+WORKDIR /app
+
+# Copy built JAR from builder stage
+COPY --from=builder /app/target/kafka-perf-*.jar ./kafka-perf.jar
+
+# Create a non-root user
+RUN groupadd -r kafka && useradd -r -g kafka kafka
+
+# Set ownership
+RUN chown -R kafka:kafka /app
+
+# Switch to non-root user
+USER kafka
+
+# Default main class for BaselineConsumer
+ENV MAIN_CLASS=com.kafka.perf.baseline.BaselineConsumer
+
+# Set Java options for GC and performance
+ENV JAVA_TOOL_OPTIONS="-XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1HeapRegionSize=16M -XX:MetaspaceSize=96m"
+ENV JAVA_HEAP_OPTS="-Xms512m -Xmx512m"
+
+# Run the consumer
+ENTRYPOINT ["sh", "-c", "exec java ${JAVA_HEAP_OPTS} ${JAVA_TOOL_OPTIONS} -cp /app/kafka-perf.jar ${MAIN_CLASS}"]

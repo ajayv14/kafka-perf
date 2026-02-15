@@ -3,6 +3,9 @@ Setup Instructions
 
 Kafka Machine Setup
 
+docker-compose -f docker-compose-kafka-cluster.yml up -d
+
+
 Step 1: Download JMX Exporter
 bashmkdir -p jmx-exporter
 cd jmx-exporter
@@ -141,14 +144,14 @@ kafka-1:29092 (id: 1 rack: null isFenced: false) -> (
 
 # EOS topics creation:
 
-docker exec -it kafka-1 kafka-topics \
-  --create \
-  --topic eos-topic \
-  --bootstrap-server kafka-1:29092 \
-  --partitions 3 \
-  --replication-factor 3 \
-  --config min.insync.replicas=2 \
-  --config retention.ms=3600000
+  docker exec -it kafka-1 kafka-topics \
+    --create \
+    --topic eos-topic \
+    --bootstrap-server kafka-1:29092 \
+    --partitions 12 \
+    --replication-factor 3 \
+    --config min.insync.replicas=2 \
+    --config retention.ms=3600000
 
 
 # Verify transaction state topic (autocreated)

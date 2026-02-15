@@ -9,7 +9,7 @@ services:
   # KAFKA CLUSTER
   # ============================================
   kafka-broker-1:
-    image: confluentinc/cp-kafka:latest
+    image: apache/kafka:4.1.1
     container_name: kafka-1
     hostname: kafka-1
     ports:
@@ -28,6 +28,10 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:29093,2@kafka-2:29093,3@kafka-3:29093
+
+      # JVM Configuration
+      KAFKA_HEAP_OPTS: "-Xms2g -Xmx2g"
+      KAFKA_JVM_PERFORMANCE_OPTS: "-XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1HeapRegionSize=16M -XX:MetaspaceSize=96m"
 
       # EOS-critical settings
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
@@ -50,11 +54,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
-          memory: 1G
+          cpus: '2'
+          memory: 4G
         reservations:
-          cpus: '1'
-          memory: 1G
+          cpus: '2'
+          memory: 4G
 
     volumes:
       - kafka1_:/var/lib/kafka/data
@@ -63,7 +67,7 @@ services:
       - kafka-network
 
   kafka-broker-2:
-    image: confluentinc/cp-kafka:latest
+    image: apache/kafka:4.1.1
     container_name: kafka-2
     hostname: kafka-2
     ports:
@@ -82,6 +86,11 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:29093,2@kafka-2:29093,3@kafka-3:29093
+
+      # JVM Configuration
+      KAFKA_HEAP_OPTS: "-Xms2g -Xmx2g"
+      KAFKA_JVM_PERFORMANCE_OPTS: "-XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1HeapRegionSize=16M -XX:MetaspaceSize=96m"
+
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
@@ -102,11 +111,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
-          memory: 1G
+          cpus: '2'
+          memory: 4G
         reservations:
-          cpus: '1'
-          memory: 1G
+          cpus: '2'
+          memory: 4G
 
     volumes:
       - kafka2_:/var/lib/kafka/data
@@ -115,7 +124,7 @@ services:
       - kafka-network
 
   kafka-broker-3:
-    image: confluentinc/cp-kafka:latest
+    image: apache/kafka:4.1.1
     container_name: kafka-3
     hostname: kafka-3
     ports:
@@ -135,6 +144,11 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:29093,2@kafka-2:29093,3@kafka-3:29093
+
+      # JVM Configuration
+      KAFKA_HEAP_OPTS: "-Xms2g -Xmx2g"
+      KAFKA_JVM_PERFORMANCE_OPTS: "-XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1HeapRegionSize=16M -XX:MetaspaceSize=96m"
+
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
@@ -155,11 +169,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
-          memory: 1G
+          cpus: '2'
+          memory: 4G
         reservations:
-          cpus: '1'
-          memory: 1G
+          cpus: '2'
+          memory: 4G
 
     volumes:
       - kafka3_:/var/lib/kafka/data
@@ -171,45 +185,6 @@ services:
   # MONITORING EXPORTERS (expose metrics for remote Prometheus)
   # ============================================
   
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:latest
-    container_name: cadvisor
-    ports:
-      - "8080:8080"
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-      - /dev/disk/:/dev/disk:ro
-    privileged: true
-    devices:
-      - /dev/kmsg
-    networks:
-      - kafka-network
-    command:
-      - '--housekeeping_interval=10s'
-      - '--docker_only=false'
-      - '--disable_metrics=disk,network,tcp,udp,percpu,sched,process'
-      - '--enable_metrics=cpu,memory'
-
-  node-exporter:
-    image: prom/node-exporter:latest
-    container_name: node-exporter
-    ports:
-      - "9100:9100"
-    command:
-      - '--path.rootfs=/host'
-      - '--collector.cpu'
-      - '--collector.meminfo'
-      - '--collector.loadavg'
-      - '--collector.stat'
-    volumes:
-      - /:/host:ro
-    networks:
-      - kafka-network
-    pid: host
-
   kafdrop:
     image: obsidiandynamics/kafdrop:latest
     container_name: kafdrop
@@ -231,6 +206,65 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256m
+        reservations:
+          cpus: '0.25'
+          memory: 256m
+
+    devices:
+      - /dev/kmsg
+    networks:
+      - kafka-network
+    command:
+      - '--housekeeping_interval=10s'
+      - '--docker_only=false'
+      - '--disable_metrics=disk,network,tcp,udp,percpu,sched,process'
+      - '--enable_metrics=cpu,memory'
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    ports:
+      - "9100:9100"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256m
+        reservations:
+          cpus: '0.25'
+          memory: 256m
+
+    command:
+      - '--path.rootfs=/host'
+      - '--collector.cpu'
+      - '--collector.meminfo'
+      - '--collector.loadavg'
+      - '--collector.stat'
+    volumes:
+      - /:/host:ro
+    networks:
+      - kafka-network
+    pid: host
 
 volumes:
   kafka1_:
