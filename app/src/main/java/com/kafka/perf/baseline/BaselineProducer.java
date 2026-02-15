@@ -1,11 +1,7 @@
 package com.kafka.perf.baseline;
 
 import java.io.FileInputStream;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Properties;
-import java.util.Queue;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 
 import org.apache.kafka.clients.producer.KafkaProducer;
@@ -108,48 +104,26 @@ public class BaselineProducer {
         props.put(ProducerConfig.BUFFER_MEMORY_CONFIG,
                 benchmarkProps.getProperty("buffer.memory", "67108864"));
 
-        // Store results across iterations
-        List<MetricsUtil.IterationResult> results = new ArrayList<>();
-
-        // Generate timestamp for file names
-        String timestamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new java.util.Date());
-        String iterationsCsvFile = "kafka_perf_iterations_" + timestamp + ".csv";
-        String summaryCsvFile = "kafka_perf_summary_" + timestamp + ".csv";
-
-        System.out.println("==== Multi-Iteration Baseline Test ====");
+        System.out.println("==== Baseline Producer Test ====");
         System.out.printf("Iterations: %d%n", NUM_ITERATIONS);
         System.out.printf("Records per iteration: %d%n", NUM_RECORDS);
-        System.out.printf("Warmup records: %d%n", WARMUP_RECORDS);
-        System.out.printf("Transaction batch size: %d (currently unused)%n", txnBatchSize);
-        System.out.printf("Results will be saved to:%n");
-        System.out.printf("  - %s%n", iterationsCsvFile);
-        System.out.printf("  - %s%n%n", summaryCsvFile);
+        System.out.printf("Warmup records: %d%n%n", WARMUP_RECORDS);
 
         for (int iter = 1; iter <= NUM_ITERATIONS; iter++) {
             System.out.printf("==== Starting Iteration %d/%d ====%n", iter, NUM_ITERATIONS);
             
-            MetricsUtil.IterationResult result = runIteration(props, iter);
-            results.add(result);
+            runIteration(props, iter);
             
             if (iter < NUM_ITERATIONS) {
                 System.out.printf("Cooling down for %dms...%n%n", INTER_TEST_DELAY_MS);
                 Thread.sleep(INTER_TEST_DELAY_MS);
             }
         }
-
-        // Print summary statistics
-        MetricsUtil.printSummaryStatistics(results);
-
-        // Export to CSV
-        MetricsUtil.exportIterationsToCSV(results, iterationsCsvFile);
-        MetricsUtil.exportSummaryToCSV(results, summaryCsvFile);
-
-        System.out.printf("%nResults successfully exported to:%n");
-        System.out.printf("  - %s%n", iterationsCsvFile);
-        System.out.printf("  - %s%n", summaryCsvFile);
+        
+        System.out.println("\n==== Baseline Producer Test Completed ====");
     }
 
-    private static MetricsUtil.IterationResult runIteration(Properties props, int iterationNum) throws Exception {
+    private static void runIteration(Properties props, int iterationNum) throws Exception {
         KafkaProducer<String, String> producer = new KafkaProducer<>(props);
         
         // CRITICAL FIX: Only initialize transactions when enabled
@@ -188,11 +162,7 @@ public class BaselineProducer {
         }
 
         // Measured run
-        Queue<Long> latenciesMs = new ConcurrentLinkedQueue<>();
         CountDownLatch latch = new CountDownLatch(NUM_RECORDS);
-
-        long txnStartNs = System.nanoTime();
-        long runStartNs = txnStartNs;
 
         try {
 
@@ -202,12 +172,7 @@ public class BaselineProducer {
                 ProducerRecord<String, String> record =
                         new ProducerRecord<>(TOPIC, "key-" + i, "value-" + i);
 
-                final long sendStartNs = System.nanoTime();
-
                 producer.send(record, (metadata, exception) -> {
-                    long latencyMs = (System.nanoTime() - sendStartNs) / 1_000_000;
-                    latenciesMs.add(latencyMs);
-                    
                     latch.countDown();
 
                     if (exception != null) {
@@ -240,38 +205,7 @@ public class BaselineProducer {
             producer.close();
         }
 
-        long runEndNs = System.nanoTime();
-        long txnEndNs = runEndNs;
-
-        // Compute metrics
-        List<Long> sortedLatencies = new ArrayList<>(latenciesMs);
-        sortedLatencies.sort(Long::compare);
-
-        double runSeconds = (runEndNs - runStartNs) / 1_000_000_000.0;
-        double txnDurationMs = (txnEndNs - txnStartNs) / 1_000_000.0;
-        double throughput = NUM_RECORDS / runSeconds;
-
-        long min = sortedLatencies.get(0);
-        long p50 = MetricsUtil.percentile(sortedLatencies, 50);
-        long p95 = MetricsUtil.percentile(sortedLatencies, 95);
-        long p99 = MetricsUtil.percentile(sortedLatencies, 99);
-        long p999 = MetricsUtil.percentile(sortedLatencies, 99.9);
-        long max = sortedLatencies.get(sortedLatencies.size() - 1);
-        double avg = sortedLatencies.stream().mapToLong(Long::longValue).average().orElse(0);
-        double stddev = MetricsUtil.calculateStdDev(sortedLatencies, avg);
-
-        MetricsUtil.IterationResult result = new MetricsUtil.IterationResult(
-            iterationNum,
-            throughput,
-            txnDurationMs,
-            min, avg, stddev, p50, p95, p99, p999, max
-        );
-
-        // Print iteration results
-        System.out.printf("Throughput: %.2f rec/sec | p50: %dms | p95: %dms | p99: %dms%n",
-                throughput, p50, p95, p99);
-
-        return result;
+        System.out.println("Iteration " + iterationNum + " completed.");
     }
 
 
