@@ -20,7 +20,7 @@ public class BaselineConsumer {
     private static long POLL_TIMEOUT_MS;
     private static String ISOLATION_LEVEL;
     private static boolean ENABLE_AUTO_COMMIT;
-    private static long AUTO_COMMIT_INTERVAL_MS;
+    private static int AUTO_COMMIT_INTERVAL_MS;
     private static String AUTO_OFFSET_RESET;
     private static String KEY_DESERIALIZER;
     private static String VALUE_DESERIALIZER;
@@ -51,7 +51,7 @@ public class BaselineConsumer {
         ENABLE_AUTO_COMMIT = Boolean.parseBoolean(
                 benchmarkProps.getProperty("consumer.enable.auto.commit", "true")
         );
-        AUTO_COMMIT_INTERVAL_MS = Long.parseLong(
+        AUTO_COMMIT_INTERVAL_MS = Integer.parseInt(
                 benchmarkProps.getProperty("consumer.auto.commit.interval.ms", "5000")
         );
         AUTO_OFFSET_RESET = benchmarkProps.getProperty("consumer.auto.offset.reset", "earliest");
