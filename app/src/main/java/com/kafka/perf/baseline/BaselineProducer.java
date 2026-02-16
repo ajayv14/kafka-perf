@@ -70,10 +70,14 @@ public class BaselineProducer {
         // Configure based on transaction mode
         if (txnEnabled) {
             // Transaction mode - force EOS settings
-            props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, "true");
-            props.put(ProducerConfig.ACKS_CONFIG, "all");
-            props.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
-            props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 5);
+                props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG,
+                    benchmarkProps.getProperty("enable.idempotence", "true"));
+                props.put(ProducerConfig.ACKS_CONFIG,
+                    benchmarkProps.getProperty("acks", "all"));
+                props.put(ProducerConfig.RETRIES_CONFIG,
+                    benchmarkProps.getProperty("retries", String.valueOf(Integer.MAX_VALUE)));
+                props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
+                    benchmarkProps.getProperty("max.in.flight.requests.per.connection", "5"));
             
             // CRITICAL: Only set transactional ID when transactions are enabled
             props.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG,
