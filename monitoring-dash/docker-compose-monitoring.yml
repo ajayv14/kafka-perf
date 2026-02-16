@@ -25,7 +25,7 @@ services:
       - '--web.console.templates=/usr/share/prometheus/consoles'
       - '--web.enable-lifecycle'
     networks:
-      - monitoring
+      - kafka-network
 
   # ============================================
   # GRAFANA (Visualization)
@@ -46,7 +46,7 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning
       - ./grafana/dashboards:/var/lib/grafana/dashboards
     networks:
-      - monitoring
+      - kafka-network
     depends_on:
       - prometheus
 
@@ -57,5 +57,6 @@ volumes:
     driver: local
 
 networks:
-  monitoring:
-    driver: bridge
+  kafka-network:
+    external: true
+    name: kafka-cluster_kafka-network
