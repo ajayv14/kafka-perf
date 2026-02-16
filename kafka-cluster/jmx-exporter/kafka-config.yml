@@ -1,93 +1,210 @@
+startDelaySeconds: 0
 lowercaseOutputName: true
 lowercaseOutputLabelNames: true
 
-# Expanded whitelist to include specific histogram attributes
-whitelistObjectNames:
-  - java.lang:type=OperatingSystem
-  - java.lang:type=Threading
-  - java.lang:type=Memory
-  - java.lang:type=GarbageCollector,name=*
-  - kafka.server:type=BrokerTopicMetrics,name=*
-  - kafka.server:type=ReplicaManager,name=*
-  - kafka.network:type=RequestMetrics,name=*
-  - kafka.server:type=KafkaRequestHandlerPool,name=*
-  - kafka.controller:type=KafkaController,name=*
-
 rules:
-  # ============================================================
-  # LATENCY & PERCENTILES (The "Benchmark" Essentials)
-  # ============================================================
-  
-  # Captures p50, p95, p99, p999 for Produce and Fetch requests
-  - pattern: 'kafka.network<type=RequestMetrics, name=TotalTimeMs, request=(Produce|Fetch)><>(50thPercentile|95thPercentile|99thPercentile|999thPercentile)'
-    name: kafka_request_latency_ms
-    labels:
-      request_type: "$1"
-      quantile: "$2"
-    type: GAUGE
-    # Note: quantile label will look like "99thPercentile". 
-    # In Grafana, you can map these to 0.99 for standard quantile views.
 
-  # Remote Time: Time spent waiting for ISR (key for benchmarking replication overhead)
-  - pattern: 'kafka.network<type=RequestMetrics, name=RemoteTimeMs, request=Produce><>(95thPercentile|99thPercentile)'
-    name: kafka_produce_remote_latency_ms
-    labels:
-      quantile: "$1"
-    type: GAUGE
+# =====================================================
+# 1️⃣ MESSAGE COUNTS (core for EOS / audit experiments)
+# =====================================================
 
-  # ============================================================
-  # CPU & JVM (Research Focus)
-  # ============================================================
-  
-  - pattern: 'java.lang<type=OperatingSystem><>(ProcessCpuLoad|SystemCpuLoad)'
-    name: kafka_cpu_load_ratio
-    labels:
-      scope: "$1"
-    type: GAUGE
+- pattern: 'kafka.server<type=BrokerTopicMetrics, name=MessagesInPerSec, topic=(.*)><>Count'
+  name: kafka_broker_messages_in_total
+  type: COUNTER
+  labels:
+    topic: "$1"
+  help: "Total messages received by broker per topic"
 
-  - pattern: 'java.lang<type=OperatingSystem><>SystemLoadAverage'
-    name: kafka_system_load_average
-    type: GAUGE
+- pattern: 'kafka.server<type=BrokerTopicMetrics, name=MessagesInPerSec><>Count'
+  name: kafka_broker_messages_in_total
+  type: COUNTER
+  help: "Total messages received by broker (all topics)"
 
-  - pattern: 'java.lang<type=Threading><>(ThreadCount|PeakThreadCount|DaemonThreadCount)'
-    name: kafka_jvm_threads
-    labels:
-      statistic: "$1"
-    type: GAUGE
+# Per-second rate for messages in
+- pattern: 'kafka.server<type=BrokerTopicMetrics, name=MessagesInPerSec><>(OneMinuteRate|FiveMinuteRate|FifteenMinuteRate|MeanRate)'
+  name: kafka_broker_messages_in_per_sec
+  labels:
+    rate_window: "$1"
+  type: GAUGE
+  help: "Messages in per second (sliding window)"
 
-  - pattern: 'java.lang<type=GarbageCollector, name=(.+)><>(CollectionCount|CollectionTime)'
-    name: kafka_gc_$2_total
-    labels:
-      collector: "$1"
-    type: COUNTER
+# =====================================================
+# 2️⃣ THROUGHPUT (bytes per second)
+# =====================================================
 
-  # ============================================================
-  # THROUGHPUT & RESOURCE POOLS
-  # ============================================================
+# Bytes In - Total Count
+- pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesInPerSec><>Count'
+  name: kafka_broker_bytes_in_total
+  type: COUNTER
+  help: "Total bytes received"
 
-  # Consolidated Throughput Metrics
-  - pattern: 'kafka.server<type=BrokerTopicMetrics, name=(MessagesInPerSec|BytesInPerSec|BytesOutPerSec)><>Count'
-    name: kafka_broker_throughput_$1_total
-    type: COUNTER
+# Bytes In - Per Second Rate
+- pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesInPerSec><>(OneMinuteRate|FiveMinuteRate|FifteenMinuteRate|MeanRate)'
+  name: kafka_broker_bytes_in_per_sec
+  labels:
+    rate_window: "$1"
+  type: GAUGE
+  help: "Bytes in per second (sliding window)"
 
-  # Request Handler Idle - If this drops to 0, your CPU is pinned or threads are blocked
-  - pattern: 'kafka.server<type=KafkaRequestHandlerPool, name=RequestHandlerAvgIdlePercent><>(OneMinuteRate|Value)'
-    name: kafka_request_handler_idle_ratio
-    type: GAUGE
+# Bytes Out - Total Count
+- pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesOutPerSec><>Count'
+  name: kafka_broker_bytes_out_total
+  type: COUNTER
+  help: "Total bytes sent"
 
-  # Request Queue - Items waiting for a thread
-  - pattern: 'kafka.network<type=RequestMetrics, name=RequestQueueSize><>Value'
-    name: kafka_request_queue_size
-    type: GAUGE
+# Bytes Out - Per Second Rate
+- pattern: 'kafka.server<type=BrokerTopicMetrics, name=BytesOutPerSec><>(OneMinuteRate|FiveMinuteRate|FifteenMinuteRate|MeanRate)'
+  name: kafka_broker_bytes_out_per_sec
+  labels:
+    rate_window: "$1"
+  type: GAUGE
+  help: "Bytes out per second (sliding window)"
 
-  # ============================================================
-  # REPLICATION & HEALTH
-  # ============================================================
-  
-  - pattern: 'kafka.server<type=ReplicaManager, name=(UnderReplicatedPartitions|LeaderCount|PartitionCount)><>Value'
-    name: kafka_replica_manager_$1
-    type: GAUGE
+# Per-topic throughput (optional but useful for detailed analysis)
+- pattern: 'kafka.server<type=BrokerTopicMetrics, name=(BytesInPerSec|BytesOutPerSec), topic=(.*)><>(OneMinuteRate|MeanRate)'
+  name: kafka_broker_topic_throughput_per_sec
+  labels:
+    direction: "$1"
+    topic: "$2"
+    rate_window: "$3"
+  type: GAUGE
 
-  - pattern: 'kafka.server<type=ReplicaManager, name=(IsrShrinksPerSec|IsrExpandsPerSec)><>Count'
-    name: kafka_replica_manager_$1_total
-    type: COUNTER
+# =====================================================
+# 3️⃣ REQUEST LATENCY (VERY IMPORTANT FOR PAPERS)
+# =====================================================
+
+# Produce Request - Count and basic stats
+- pattern: 'kafka.network<type=RequestMetrics, name=TotalTimeMs, request=Produce><>Count'
+  name: kafka_request_produce_total
+  type: COUNTER
+  help: "Total number of produce requests"
+
+- pattern: 'kafka.network<type=RequestMetrics, name=TotalTimeMs, request=Produce><>(Mean|Max|Min|StdDev)'
+  name: kafka_request_produce_latency_ms
+  labels:
+    statistic: "$1"
+  type: GAUGE
+  help: "Produce request latency statistics"
+
+# Produce Request - Percentiles
+- pattern: 'kafka.network<type=RequestMetrics, name=TotalTimeMs, request=Produce><>(50thPercentile|75thPercentile|95thPercentile|98thPercentile|99thPercentile|999thPercentile)'
+  name: kafka_request_produce_latency_ms
+  labels:
+    statistic: "percentile"
+    quantile: "$1"
+  type: GAUGE
+  help: "Produce request latency percentiles"
+
+# Fetch Consumer - Count and basic stats
+- pattern: 'kafka.network<type=RequestMetrics, name=TotalTimeMs, request=FetchConsumer><>Count'
+  name: kafka_request_fetch_total
+  type: COUNTER
+  help: "Total number of fetch requests"
+
+- pattern: 'kafka.network<type=RequestMetrics, name=TotalTimeMs, request=FetchConsumer><>(Mean|Max|Min|StdDev)'
+  name: kafka_request_fetch_latency_ms
+  labels:
+    statistic: "$1"
+  type: GAUGE
+  help: "Fetch consumer request latency statistics"
+
+# Fetch Consumer - Percentiles
+- pattern: 'kafka.network<type=RequestMetrics, name=TotalTimeMs, request=FetchConsumer><>(50thPercentile|75thPercentile|95thPercentile|98thPercentile|99thPercentile|999thPercentile)'
+  name: kafka_request_fetch_latency_ms
+  labels:
+    statistic: "percentile"
+    quantile: "$1"
+  type: GAUGE
+  help: "Fetch consumer request latency percentiles"
+
+# Detailed latency breakdown (queue time, remote time, etc.)
+- pattern: 'kafka.network<type=RequestMetrics, name=(RequestQueueTimeMs|LocalTimeMs|RemoteTimeMs|ResponseQueueTimeMs|ResponseSendTimeMs), request=(Produce|FetchConsumer)><>(Mean|95thPercentile|99thPercentile)'
+  name: kafka_request_latency_component_ms
+  labels:
+    request_type: "$2"
+    component: "$1"
+    statistic: "$3"
+  type: GAUGE
+  help: "Breakdown of request latency by component"
+
+# =====================================================
+# 4️⃣ BROKER HEALTH (minimal but useful)
+# =====================================================
+
+- pattern: 'kafka.controller<type=KafkaController, name=ActiveControllerCount><>Value'
+  name: kafka_active_controller
+  type: GAUGE
+  help: "Indicates if this broker is the active controller (1=yes, 0=no)"
+
+- pattern: 'kafka.server<type=ReplicaManager, name=UnderReplicatedPartitions><>Value'
+  name: kafka_under_replicated_partitions
+  type: GAUGE
+  help: "Number of under-replicated partitions"
+
+- pattern: 'kafka.server<type=ReplicaManager, name=PartitionCount><>Value'
+  name: kafka_partition_count
+  type: GAUGE
+  help: "Number of partitions on this broker"
+
+- pattern: 'kafka.server<type=ReplicaManager, name=LeaderCount><>Value'
+  name: kafka_leader_count
+  type: GAUGE
+  help: "Number of leader replicas on this broker"
+
+# =====================================================
+# 5️⃣ JVM METRICS (needed for performance analysis)
+# =====================================================
+
+- pattern: 'java.lang<type=Memory><HeapMemoryUsage>used'
+  name: jvm_heap_used_bytes
+  type: GAUGE
+  help: "JVM heap memory used"
+
+- pattern: 'java.lang<type=Memory><HeapMemoryUsage>max'
+  name: jvm_heap_max_bytes
+  type: GAUGE
+  help: "JVM heap memory max"
+
+- pattern: 'java.lang<type=GarbageCollector, name=(.+)><>CollectionTime'
+  name: jvm_gc_collection_time_ms_total
+  labels:
+    gc: "$1"
+  type: COUNTER
+  help: "Total GC collection time"
+
+- pattern: 'java.lang<type=GarbageCollector, name=(.+)><>CollectionCount'
+  name: jvm_gc_collection_count_total
+  labels:
+    gc: "$1"
+  type: COUNTER
+  help: "Total GC collection count"
+
+- pattern: 'java.lang<type=Threading><>ThreadCount'
+  name: jvm_threads_live
+  type: GAUGE
+  help: "Current thread count"
+
+# =====================================================
+# 6️⃣ NETWORK METRICS (useful for saturation analysis)
+# =====================================================
+
+- pattern: 'kafka.network<type=RequestChannel, name=RequestQueueSize><>Value'
+  name: kafka_request_queue_size
+  type: GAUGE
+  help: "Size of the request queue"
+
+- pattern: 'kafka.network<type=SocketServer, name=NetworkProcessorAvgIdlePercent><>Value'
+  name: kafka_network_processor_idle_percent
+  type: GAUGE
+  help: "Network processor average idle percentage"
+
+# =====================================================
+# 7️⃣ LOG METRICS (for understanding disk I/O)
+# =====================================================
+
+- pattern: 'kafka.log<type=LogFlushStats, name=LogFlushRateAndTimeMs><>(Count|Mean|Max)'
+  name: kafka_log_flush
+  labels:
+    statistic: "$1"
+  type: GAUGE
+  help: "Log flush rate and time"
