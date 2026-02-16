@@ -24,7 +24,6 @@ public class BaselineConsumer {
     private static String AUTO_OFFSET_RESET;
     private static String KEY_DESERIALIZER;
     private static String VALUE_DESERIALIZER;
-    private static final int MAX_EMPTY_POLLS = 5;
 
     public static void main(String[] args) throws Exception {
         
@@ -80,20 +79,9 @@ public class BaselineConsumer {
         consumer.subscribe(Collections.singletonList(TOPIC));
 
         try {
-            int emptyPollCount = 0;
             while (true) {
                 ConsumerRecords<String, String> records = 
                     consumer.poll(Duration.ofMillis(POLL_TIMEOUT_MS));
-
-                if (records.isEmpty()) {
-                    emptyPollCount++;
-                    if (emptyPollCount >= MAX_EMPTY_POLLS) {
-                        break;
-                    }
-                    continue;
-                }
-
-                emptyPollCount = 0;
 
                 for (@SuppressWarnings("unused") ConsumerRecord<String, String> record : records) {
                     // Process record
