@@ -107,8 +107,14 @@ MAX_POLL_INTERVAL_MS = Integer.parseInt(
 
     // ===== THROUGHPUT TUNING =====
     props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, 1048576); // 1MB
-    props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, 100);
-    props.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, 10485760); // 10MB
+    props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, FETCH_MIN_BYTES);
+    props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, FETCH_MAX_WAIT_MS);
+    props.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, MAX_PARTITION_FETCH_BYTES);
+
+    // ===== SESSION & POLLING TUNING =====
+    props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, SESSION_TIMEOUT_MS);
+    props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, HEARTBEAT_INTERVAL_MS);
+    props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, MAX_POLL_INTERVAL_MS);
 
     KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
     consumer.subscribe(Collections.singletonList(TOPIC));
@@ -117,22 +123,19 @@ MAX_POLL_INTERVAL_MS = Integer.parseInt(
 
     try {
         while (true) {
-
             ConsumerRecords<String, String> records =
-                    consumer.poll(Duration.ofMillis(100)); // shorter poll
+                    consumer.poll(Duration.ofMillis(POLL_TIMEOUT_MS));
 
             // Minimal processing overhead (benchmark mode)
             //int recordCount = records.count();
 
             // Periodic async commit (non-blocking)
             if (!ENABLE_AUTO_COMMIT &&
-                    System.currentTimeMillis() - lastCommitTime >= 5000) {
-
+                    System.currentTimeMillis() - lastCommitTime >= AUTO_COMMIT_INTERVAL_MS) {
                 consumer.commitAsync();
                 lastCommitTime = System.currentTimeMillis();
             }
         }
-
     } finally {
         try {
             if (!ENABLE_AUTO_COMMIT) {
