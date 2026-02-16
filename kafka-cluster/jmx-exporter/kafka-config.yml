@@ -208,3 +208,23 @@ rules:
     statistic: "$1"
   type: GAUGE
   help: "Log flush rate and time"
+
+
+# =====================================================
+# TRANSACTIONAL METRICS (Essential for EOS Audit)
+# =====================================================
+
+- pattern: 'kafka.server<type=TransactionCoordinatorMetrics, name=TransactionsWithTimeout-total><>Count'
+  name: kafka_tx_timeouts_total
+  type: COUNTER
+  help: "Total transactions that timed out (helps identify F5/F6 faults)"
+
+- pattern: 'kafka.server<type=TransactionCoordinatorMetrics, name=AbortTxn-total><>Count'
+  name: kafka_tx_aborts_total
+  type: COUNTER
+  help: "Total aborted transactions (compare this with your Audit 'Failure' count)"
+
+- pattern: 'kafka.server<type=TransactionCoordinatorMetrics, name=InFlightTransactions-total><>Value'
+  name: kafka_tx_inflight_count
+  type: GAUGE
+  help: "Current active transactions"
