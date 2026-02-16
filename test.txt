@@ -1,0 +1,5 @@
+bin/kafka-producer-perf-test.sh --topic eos-topic --num-records 1000000 --record-size 1024 \
+  --throughput -1 \
+  --producer-props bootstrap.servers=localhost:9092 acks=all \
+    key.serializer=org.apache.kafka.common.serialization.StringSerializer \
+    value.serializer=org.apache.kafka.common.serialization.StringSerializer

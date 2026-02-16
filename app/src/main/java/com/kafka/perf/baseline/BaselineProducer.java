@@ -1,6 +1,6 @@
 package com.kafka.perf.baseline;
 
-import java.io.FileInputStream;
+import java.io.InputStream;
 import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
 
@@ -21,13 +21,18 @@ public class BaselineProducer {
     private static String TOPIC;
     private static boolean txnEnabled = false;
     private static int txnBatchSize = 1000;
+    private static int messageSizeBytes = 1024;
+    private static int flushIntervalRecords = 10000;
 
     public static void main(String[] args) throws Exception {
 
-        // Load properties from benchmark.properties
+        // Load properties from benchmark.properties (classpath)
         Properties benchmarkProps = new Properties();
-        try (FileInputStream fis = new FileInputStream("src/main/resources/benchmark.properties")) {
-            benchmarkProps.load(fis);
+        try (InputStream is = BaselineProducer.class.getResourceAsStream("/benchmark.properties")) {
+            if (is == null) {
+                throw new java.io.FileNotFoundException("benchmark.properties not found on classpath");
+            }
+            benchmarkProps.load(is);
         } catch (Exception e) {
             System.err.println("Error loading benchmark.properties: " + e.getMessage());
             throw e;
@@ -47,6 +52,13 @@ public class BaselineProducer {
                 benchmarkProps.getProperty("producer.inter.test.delay.ms", "5000")
         );
         TOPIC = benchmarkProps.getProperty("producer.topic", "eos-topic");
+        messageSizeBytes = Integer.parseInt(
+            benchmarkProps.getProperty("producer.message.size.bytes", "1024")
+        );
+
+        flushIntervalRecords = Integer.parseInt(
+            benchmarkProps.getProperty("producer.flush.interval.records", "10000")
+        );
 
         // Build Kafka producer properties
         Properties props = new Properties();
@@ -142,10 +154,20 @@ public class BaselineProducer {
                 // FIX: Conditional transaction begin in warmup
                 if (txnEnabled) producer.beginTransaction();
                 
+                // Prepare a 1KB payload for warmup
+                String warmupPayload = "warmup-value";
+                if (messageSizeBytes > warmupPayload.length()) {
+                    StringBuilder sb = new StringBuilder(messageSizeBytes);
+                    sb.append(warmupPayload);
+                    while (sb.length() < messageSizeBytes) sb.append('x');
+                    warmupPayload = sb.substring(0, messageSizeBytes);
+                }
+
                 for (int i = 0; i < WARMUP_RECORDS; i++) {
                     ProducerRecord<String, String> record =
-                            new ProducerRecord<>(TOPIC, "warmup-key", "warmup-value");
+                            new ProducerRecord<>(TOPIC, "warmup-key", warmupPayload);
                     producer.send(record);
+                    if (i % flushIntervalRecords == 0 && i != 0) producer.flush();
                 }
                 
                 // FIX: Conditional transaction commit in warmup
@@ -172,9 +194,14 @@ public class BaselineProducer {
 
             if (txnEnabled) producer.beginTransaction();
 
+            // Prepare a reusable 1KB payload string
+            StringBuilder sb = new StringBuilder(messageSizeBytes);
+            while (sb.length() < messageSizeBytes) sb.append('v');
+            String payload = sb.substring(0, messageSizeBytes);
+
             for (int i = 0; i < NUM_RECORDS; i++) {
                 ProducerRecord<String, String> record =
-                        new ProducerRecord<>(TOPIC, "key-" + i, "value-" + i);
+                        new ProducerRecord<>(TOPIC, "key-" + i, payload);
 
                 producer.send(record, (metadata, exception) -> {
                     latch.countDown();
@@ -183,6 +210,9 @@ public class BaselineProducer {
                         exception.printStackTrace();
                     }
                 });
+
+                // Periodic flush to bound memory usage and push larger batches
+                if (i % flushIntervalRecords == 0 && i != 0) producer.flush();
             }
 
             latch.await(); // wait for all acks

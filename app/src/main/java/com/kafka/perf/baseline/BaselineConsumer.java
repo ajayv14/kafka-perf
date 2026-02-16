@@ -1,6 +1,6 @@
 package com.kafka.perf.baseline;
 
-import java.io.FileInputStream;
+import java.io.InputStream;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Properties;
@@ -32,10 +32,13 @@ public class BaselineConsumer {
 
     public static void main(String[] args) throws Exception {
         
-        // Load properties from benchmark.properties
+        // Load properties from benchmark.properties (classpath)
         Properties benchmarkProps = new Properties();
-        try (FileInputStream fis = new FileInputStream("src/main/resources/benchmark.properties")) {
-            benchmarkProps.load(fis);
+        try (InputStream is = BaselineConsumer.class.getResourceAsStream("/benchmark.properties")) {
+            if (is == null) {
+                throw new java.io.FileNotFoundException("benchmark.properties not found on classpath");
+            }
+            benchmarkProps.load(is);
         } catch (Exception e) {
             System.err.println("Error loading benchmark.properties: " + e.getMessage());
             throw e;
