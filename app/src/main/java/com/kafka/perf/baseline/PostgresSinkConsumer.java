@@ -12,12 +12,15 @@ import java.util.UUID;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 
 /**
  * PostgreSQL Sink Consumer - Identical to BaselineConsumer but writes to PostgreSQL.
  * 
  * Consumes messages from Kafka topic and writes them to PostgreSQL sink database.
  * Configuration is centralized in KafkaConsumerConfig.
+ * Uses HikariCP connection pool for efficient connection management.
  * 
  * Database Schema Required:
  * CREATE TABLE sink_events (
@@ -37,6 +40,9 @@ public class PostgresSinkConsumer {
     private static long totalMessagesWritten = 0;
     private static long totalWriteErrors = 0;
     private static long lastLogTime = System.currentTimeMillis();
+    
+    // Connection pool (initialized during startup)
+    private static HikariDataSource dataSource = null;
 
     public static void main(String[] args) throws Exception {
         
@@ -46,11 +52,48 @@ public class PostgresSinkConsumer {
         System.out.println("==== PostgreSQL Sink Consumer ====");
         System.out.println(config);
 
-        // Verify database connectivity before starting consumer
-        verifyDatabaseConnection(config);
+        // Initialize connection pool
+        initializeConnectionPool(config);
+        
+        try {
+            // Verify database connectivity before starting consumer
+            verifyDatabaseConnection(config);
 
-        // Run consumer
-        runConsumer(config);
+            // Run consumer
+            runConsumer(config);
+        } finally {
+            // Cleanup: close connection pool
+            if (dataSource != null && !dataSource.isClosed()) {
+                System.out.println("[PostgresSinkConsumer] Closing connection pool...");
+                dataSource.close();
+            }
+        }
+    }
+
+    /**
+     * Initialize HikariCP connection pool with optimized settings
+     */
+    private static void initializeConnectionPool(KafkaConsumerConfig config) throws Exception {
+        System.out.println("[PostgresSinkConsumer] Initializing HikariCP connection pool...");
+        
+        HikariConfig hikariConfig = new HikariConfig();
+        hikariConfig.setJdbcUrl(config.dbUrl);
+        hikariConfig.setUsername(config.dbUser);
+        hikariConfig.setPassword(config.dbPassword);
+        
+        // Connection pool settings
+        hikariConfig.setMaximumPoolSize(config.dbConnectionPoolSize);
+        hikariConfig.setMinimumIdle(2); // Keep minimum 2 idle connections
+        hikariConfig.setConnectionTimeout(10000); // 10s timeout for acquiring connection
+        hikariConfig.setIdleTimeout(600000); // 10 minutes idle timeout
+        hikariConfig.setMaxLifetime(1800000); // 30 minutes max lifetime
+        hikariConfig.setAutoCommit(true); // Auto-commit for simple writes
+        
+        // Connection test query for health checks
+        hikariConfig.setConnectionTestQuery("SELECT 1");
+        
+        dataSource = new HikariDataSource(hikariConfig);
+        System.out.println("[PostgresSinkConsumer] ✓ Connection pool initialized (max size: " + config.dbConnectionPoolSize + ")");
     }
 
     /**
@@ -58,26 +101,78 @@ public class PostgresSinkConsumer {
      */
     private static void verifyDatabaseConnection(KafkaConsumerConfig config) throws Exception {
         System.out.println("[PostgresSinkConsumer] Verifying database connection...");
-        try (Connection conn = DriverManager.getConnection(config.dbUrl, config.dbUser, config.dbPassword)) {
-            System.out.println("[PostgresSinkConsumer] ✓ Database connection successful");
-            System.out.println("[PostgresSinkConsumer] Database URL: " + config.dbUrl);
-            System.out.println("[PostgresSinkConsumer] Table: " + config.dbSinkTable);
-        } catch (SQLException e) {
-            System.err.println("[PostgresSinkConsumer] ✗ Database connection failed: " + e.getMessage());
-            System.err.println("[PostgresSinkConsumer] Ensure PostgreSQL is running at: " + config.dbUrl);
-            throw e;
+        System.out.println("[PostgresSinkConsumer] Attempting to connect to: " + config.dbUrl);
+        
+        int maxRetries = 15;
+        int retryCount = 0;
+        long backoffMs = 300;
+        long verifyStartTime = System.currentTimeMillis();
+        
+        while (retryCount < maxRetries) {
+            try (Connection conn = dataSource.getConnection()) {
+                long elapsedMs = System.currentTimeMillis() - verifyStartTime;
+                System.out.println("[PostgresSinkConsumer] ✓ Database connection successful (took " + elapsedMs + "ms)");
+                System.out.println("[PostgresSinkConsumer] Database URL: " + config.dbUrl);
+                System.out.println("[PostgresSinkConsumer] Table: " + config.dbSinkTable);
+                System.out.println("[PostgresSinkConsumer] PostgreSQL version: " + conn.getMetaData().getDatabaseProductVersion());
+                System.out.println("[PostgresSinkConsumer] Connection pool ready");
+                return;
+            } catch (SQLException e) {
+                retryCount++;
+                if (retryCount >= maxRetries) {
+                    System.err.println("[PostgresSinkConsumer] ✗ Database connection failed after " + maxRetries + " attempts");
+                    System.err.println("[PostgresSinkConsumer] Error: " + e.getMessage());
+                    System.err.println("[PostgresSinkConsumer] Ensure PostgreSQL is running at: " + config.dbUrl);
+                    System.err.println("[PostgresSinkConsumer] Credentials - User: " + config.dbUser + " (password configured)");
+                    throw e;
+                }
+                long elapsedMs = System.currentTimeMillis() - verifyStartTime;
+                System.err.printf("[PostgresSinkConsumer] Connection attempt %d/%d failed (%dms elapsed): %s%n", 
+                    retryCount, maxRetries, elapsedMs, e.getMessage());
+                System.err.printf("[PostgresSinkConsumer] Retrying in %dms...%n", backoffMs);
+                try {
+                    Thread.sleep(backoffMs);
+                    backoffMs = Math.min(backoffMs * 2, 5000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new Exception("Connection verification interrupted", ie);
+                }
+            }
         }
     }
 
     /**
-     * Get database connection
+     * Get database connection from pool with retry logic
      */
     private static Connection getConnection(KafkaConsumerConfig config) throws SQLException {
-        return DriverManager.getConnection(config.dbUrl, config.dbUser, config.dbPassword);
+        int maxRetries = 3;
+        int retryCount = 0;
+        long backoffMs = 100;
+        
+        while (retryCount < maxRetries) {
+            try {
+                return dataSource.getConnection();
+            } catch (SQLException e) {
+                retryCount++;
+                if (retryCount >= maxRetries) {
+                    throw new SQLException("Failed to get connection from pool after " + maxRetries + " attempts: " + e.getMessage(), e);
+                }
+                System.err.printf("[WARN] Failed to get pooled connection, attempt %d/%d: %s%n", 
+                    retryCount, maxRetries, e.getMessage());
+                try {
+                    Thread.sleep(backoffMs);
+                    backoffMs = Math.min(backoffMs * 2, 500);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new SQLException("Connection retry interrupted", ie);
+                }
+            }
+        }
+        throw new SQLException("Failed to get connection from pool");
     }
 
     /**
-     * Write message to PostgreSQL sink
+     * Write message to PostgreSQL sink with retry logic
      */
     private static void writeToSink(KafkaConsumerConfig config, String topic, int partition, long offset, String key, String value) {
         String eventId = UUID.randomUUID().toString();
@@ -86,21 +181,44 @@ public class PostgresSinkConsumer {
             config.dbSinkTable
         );
 
-        try (Connection conn = getConnection(config);
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        int maxRetries = 3;
+        int retryCount = 0;
+        long backoffMs = 50;
 
-            stmt.setString(1, eventId);
-            stmt.setString(2, topic);
-            stmt.setInt(3, partition);
-            stmt.setLong(4, offset);
-            stmt.setString(5, value);
+        while (retryCount < maxRetries) {
+            try (Connection conn = getConnection(config);
+                 PreparedStatement stmt = conn.prepareStatement(sql)) {
 
-            stmt.executeUpdate();
-            totalMessagesWritten++;
+                stmt.setString(1, eventId);
+                stmt.setString(2, topic);
+                stmt.setInt(3, partition);
+                stmt.setLong(4, offset);
+                stmt.setString(5, value);
 
-        } catch (SQLException e) {
-            totalWriteErrors++;
-            System.err.printf("[ERROR] Failed to write message (offset=%d): %s%n", offset, e.getMessage());
+                stmt.executeUpdate();
+                totalMessagesWritten++;
+                return; // Success
+
+            } catch (SQLException e) {
+                retryCount++;
+                if (retryCount >= maxRetries) {
+                    totalWriteErrors++;
+                    System.err.printf("[ERROR] Failed to write message (offset=%d) after %d attempts: %s%n", 
+                        offset, maxRetries, e.getMessage());
+                    return; // Give up
+                }
+                System.err.printf("[WARN] Failed to write message (offset=%d), attempt %d/%d: %s. Retrying...%n",
+                    offset, retryCount, maxRetries, e.getMessage());
+                try {
+                    Thread.sleep(backoffMs);
+                    backoffMs = Math.min(backoffMs * 2, 500);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    totalWriteErrors++;
+                    System.err.printf("[ERROR] Write interrupted (offset=%d): %s%n", offset, ie.getMessage());
+                    return;
+                }
+            }
         }
     }
 

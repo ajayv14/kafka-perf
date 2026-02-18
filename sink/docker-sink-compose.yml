@@ -16,6 +16,13 @@ services:
       - "synchronous_commit=on"
       - "-c"
       - "max_connections=100"
+    networks:
+      - kafka-network
 
 volumes:
   pgdata:
+
+networks:
+  kafka-network:
+    external: true
+    name: kafka-cluster_kafka-network
