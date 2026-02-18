@@ -22,25 +22,25 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:29093,2@kafka-2:29093,3@kafka-3:29093
       
-      # Performance & Benchmark Tuning
-      KAFKA_NUM_NETWORK_THREADS: 8
-      KAFKA_NUM_IO_THREADS: 16
+      # Performance & Benchmark Tuning (reduced for lower idle CPU)
+      KAFKA_NUM_NETWORK_THREADS: 4
+      KAFKA_NUM_IO_THREADS: 8
       
       # Replica fetcher threads
-      KAFKA_NUM_REPLICA_FETCHERS: 4
+      KAFKA_NUM_REPLICA_FETCHERS: 2
       
-      # Socket buffer sizes
-      KAFKA_SOCKET_SEND_BUFFER_BYTES: 1048576
-      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: 1048576
+      # Socket buffer sizes (optimized for throughput)
+      KAFKA_SOCKET_SEND_BUFFER_BYTES: 2097152
+      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: 2097152
       KAFKA_SOCKET_REQUEST_MAX_BYTES: 104857600
       
-      # Log flush settings
-      KAFKA_LOG_FLUSH_INTERVAL_MESSAGES: 10000
-      KAFKA_LOG_FLUSH_INTERVAL_MS: 1000
+      # Log flush settings (relaxed for better throughput)
+      KAFKA_LOG_FLUSH_INTERVAL_MESSAGES: 50000
+      KAFKA_LOG_FLUSH_INTERVAL_MS: 5000
       
       # Memory and log settings
       KAFKA_LOG_SEGMENT_BYTES: 1073741824
-      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 600000
       
       # Replication settings
       KAFKA_MIN_INSYNC_REPLICAS: 2
@@ -48,7 +48,9 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       
       # JVM heap size (adjust based on your 4GB RAM)
-      KAFKA_HEAP_OPTS: "-Xmx2G -Xms2G"
+      KAFKA_HEAP_OPTS: >-
+        -Xmx2G -Xms2G
+
 
       # JMX Configuration (Internal port 7071)
       KAFKA_JMX_OPTS: >-
@@ -89,25 +91,25 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:29093,2@kafka-2:29093,3@kafka-3:29093
-      # Performance tuning - Network threads
-      KAFKA_NUM_NETWORK_THREADS: 8
-      KAFKA_NUM_IO_THREADS: 16
+      # Performance tuning - Network threads (reduced for lower idle CPU)
+      KAFKA_NUM_NETWORK_THREADS: 4
+      KAFKA_NUM_IO_THREADS: 8
       
       # Replica fetcher threads
-      KAFKA_NUM_REPLICA_FETCHERS: 4
+      KAFKA_NUM_REPLICA_FETCHERS: 2
       
-      # Socket buffer sizes
-      KAFKA_SOCKET_SEND_BUFFER_BYTES: 1048576
-      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: 1048576
+      # Socket buffer sizes (optimized for throughput)
+      KAFKA_SOCKET_SEND_BUFFER_BYTES: 2097152
+      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: 2097152
       KAFKA_SOCKET_REQUEST_MAX_BYTES: 104857600
       
-      # Log flush settings
-      KAFKA_LOG_FLUSH_INTERVAL_MESSAGES: 10000
-      KAFKA_LOG_FLUSH_INTERVAL_MS: 1000
+      # Log flush settings (relaxed for better throughput)
+      KAFKA_LOG_FLUSH_INTERVAL_MESSAGES: 50000
+      KAFKA_LOG_FLUSH_INTERVAL_MS: 5000
       
       # Memory and log settings
       KAFKA_LOG_SEGMENT_BYTES: 1073741824
-      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 600000
       
       # Replication settings
       KAFKA_MIN_INSYNC_REPLICAS: 2
@@ -115,8 +117,9 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       
       # JVM heap size (adjust based on your 4GB RAM)
-      KAFKA_HEAP_OPTS: "-Xmx2G -Xms2G"
-      
+      KAFKA_HEAP_OPTS: >-
+        -Xmx2G -Xms2G
+       
       KAFKA_JMX_OPTS: >-
         -Dcom.sun.management.jmxremote
         -Dcom.sun.management.jmxremote.authenticate=false
@@ -155,25 +158,25 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:29093,2@kafka-2:29093,3@kafka-3:29093
-      # Performance tuning - Network threads
-      KAFKA_NUM_NETWORK_THREADS: 8
-      KAFKA_NUM_IO_THREADS: 16
+      # Performance tuning - Network threads (reduced for lower idle CPU)
+      KAFKA_NUM_NETWORK_THREADS: 4
+      KAFKA_NUM_IO_THREADS: 8
       
       # Replica fetcher threads
-      KAFKA_NUM_REPLICA_FETCHERS: 4
+      KAFKA_NUM_REPLICA_FETCHERS: 2
       
-      # Socket buffer sizes
-      KAFKA_SOCKET_SEND_BUFFER_BYTES: 1048576
-      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: 1048576
+      # Socket buffer sizes (optimized for throughput)
+      KAFKA_SOCKET_SEND_BUFFER_BYTES: 2097152
+      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: 2097152
       KAFKA_SOCKET_REQUEST_MAX_BYTES: 104857600
       
-      # Log flush settings
-      KAFKA_LOG_FLUSH_INTERVAL_MESSAGES: 10000
-      KAFKA_LOG_FLUSH_INTERVAL_MS: 1000
+      # Log flush settings (relaxed for better throughput)
+      KAFKA_LOG_FLUSH_INTERVAL_MESSAGES: 50000
+      KAFKA_LOG_FLUSH_INTERVAL_MS: 5000
       
       # Memory and log settings
       KAFKA_LOG_SEGMENT_BYTES: 1073741824
-      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 600000
       
       # Replication settings
       KAFKA_MIN_INSYNC_REPLICAS: 2
@@ -181,7 +184,9 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
       
       # JVM heap size (adjust based on your 4GB RAM)
-      KAFKA_HEAP_OPTS: "-Xmx2G -Xms2G"
+      KAFKA_HEAP_OPTS: >-
+        -Xmx2G -Xms2G
+     
       
       KAFKA_JMX_OPTS: >-
         -Dcom.sun.management.jmxremote
