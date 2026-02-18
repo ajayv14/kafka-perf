@@ -1,0 +1,213 @@
+package com.kafka.perf.baseline;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.time.Duration;
+import java.util.Collections;
+import java.util.Properties;
+import java.util.UUID;
+
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+
+/**
+ * PostgreSQL Sink Consumer - Identical to BaselineConsumer but writes to PostgreSQL.
+ * 
+ * Consumes messages from Kafka topic and writes them to PostgreSQL sink database.
+ * Configuration is centralized in KafkaConsumerConfig.
+ * 
+ * Database Schema Required:
+ * CREATE TABLE sink_events (
+ *     id SERIAL PRIMARY KEY,
+ *     event_id VARCHAR(64),
+ *     kafka_topic TEXT,
+ *     kafka_partition INT,
+ *     kafka_offset BIGINT,
+ *     payload TEXT,
+ *     created_at TIMESTAMP DEFAULT now()
+ * );
+ */
+public class PostgresSinkConsumer {
+
+    // Statistics
+    private static long totalMessagesConsumed = 0;
+    private static long totalMessagesWritten = 0;
+    private static long totalWriteErrors = 0;
+    private static long lastLogTime = System.currentTimeMillis();
+
+    public static void main(String[] args) throws Exception {
+        
+        // Load configuration from centralized config class
+        KafkaConsumerConfig config = KafkaConsumerConfig.load();
+        
+        System.out.println("==== PostgreSQL Sink Consumer ====");
+        System.out.println(config);
+
+        // Verify database connectivity before starting consumer
+        verifyDatabaseConnection(config);
+
+        // Run consumer
+        runConsumer(config);
+    }
+
+    /**
+     * Verify PostgreSQL connection and table existence
+     */
+    private static void verifyDatabaseConnection(KafkaConsumerConfig config) throws Exception {
+        System.out.println("[PostgresSinkConsumer] Verifying database connection...");
+        try (Connection conn = DriverManager.getConnection(config.dbUrl, config.dbUser, config.dbPassword)) {
+            System.out.println("[PostgresSinkConsumer] ✓ Database connection successful");
+            System.out.println("[PostgresSinkConsumer] Database URL: " + config.dbUrl);
+            System.out.println("[PostgresSinkConsumer] Table: " + config.dbSinkTable);
+        } catch (SQLException e) {
+            System.err.println("[PostgresSinkConsumer] ✗ Database connection failed: " + e.getMessage());
+            System.err.println("[PostgresSinkConsumer] Ensure PostgreSQL is running at: " + config.dbUrl);
+            throw e;
+        }
+    }
+
+    /**
+     * Get database connection
+     */
+    private static Connection getConnection(KafkaConsumerConfig config) throws SQLException {
+        return DriverManager.getConnection(config.dbUrl, config.dbUser, config.dbPassword);
+    }
+
+    /**
+     * Write message to PostgreSQL sink
+     */
+    private static void writeToSink(KafkaConsumerConfig config, String topic, int partition, long offset, String key, String value) {
+        String eventId = UUID.randomUUID().toString();
+        String sql = String.format(
+            "INSERT INTO %s (event_id, kafka_topic, kafka_partition, kafka_offset, payload) VALUES (?, ?, ?, ?, ?)",
+            config.dbSinkTable
+        );
+
+        try (Connection conn = getConnection(config);
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setString(1, eventId);
+            stmt.setString(2, topic);
+            stmt.setInt(3, partition);
+            stmt.setLong(4, offset);
+            stmt.setString(5, value);
+
+            stmt.executeUpdate();
+            totalMessagesWritten++;
+
+        } catch (SQLException e) {
+            totalWriteErrors++;
+            System.err.printf("[ERROR] Failed to write message (offset=%d): %s%n", offset, e.getMessage());
+        }
+    }
+
+    /**
+     * Run the consumer loop - identical to BaselineConsumer but with PostgreSQL writes
+     */
+    private static void runConsumer(KafkaConsumerConfig config) throws Exception {
+
+        Properties props = new Properties();
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, config.bootstrapServers);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, config.groupId);
+
+        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, config.maxPollRecords);
+
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, config.keyDeserializer);
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, config.valueDeserializer);
+
+        props.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, config.isolationLevel);
+
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, config.enableAutoCommit);
+        props.put(ConsumerConfig.AUTO_COMMIT_INTERVAL_MS_CONFIG, config.autoCommitIntervalMs);
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, config.autoOffsetReset);
+
+        // ===== THROUGHPUT TUNING (mirrors BaselineConsumer) =====
+        props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, config.fetchMinBytes);
+        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, config.fetchMaxWaitMs);
+        props.put(ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG, config.maxPartitionFetchBytes);
+
+        // ===== SESSION & POLLING TUNING =====
+        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, config.sessionTimeoutMs);
+        props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, config.heartbeatIntervalMs);
+        props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, config.maxPollIntervalMs);
+
+        KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
+        consumer.subscribe(Collections.singletonList(config.topic));
+
+        long lastCommitTime = System.currentTimeMillis();
+        long recordsInBatch = 0;
+
+        System.out.println("[PostgresSinkConsumer] Started consuming from topic: " + config.topic);
+        System.out.println("[PostgresSinkConsumer] Consumer Group: " + config.groupId);
+        System.out.println("[PostgresSinkConsumer] Bootstrap Servers: " + config.bootstrapServers);
+
+        try {
+            while (true) {
+                ConsumerRecords<String, String> records =
+                        consumer.poll(Duration.ofMillis(config.pollTimeoutMs));
+
+                // Write each record to PostgreSQL
+                for (var record : records) {
+                    writeToSink(
+                        config,
+                        record.topic(),
+                        record.partition(),
+                        record.offset(),
+                        record.key(),
+                        record.value()
+                    );
+                    totalMessagesConsumed++;
+                    recordsInBatch++;
+                }
+
+                // Periodic async commit (non-blocking)
+                if (!config.enableAutoCommit &&
+                        System.currentTimeMillis() - lastCommitTime >= config.autoCommitIntervalMs) {
+                    consumer.commitAsync();
+                    lastCommitTime = System.currentTimeMillis();
+                }
+
+                // Log statistics periodically
+                long currentTime = System.currentTimeMillis();
+                if (currentTime - lastLogTime >= (config.logIntervalSecs * 1000)) {
+                    logStatistics();
+                    lastLogTime = currentTime;
+                    recordsInBatch = 0;
+                }
+            }
+        } finally {
+            try {
+                if (!config.enableAutoCommit) {
+                    consumer.commitSync(); // final safe commit
+                }
+            } finally {
+                consumer.close();
+                logStatistics();
+                System.out.println("[PostgresSinkConsumer] Consumer closed gracefully");
+            }
+        }
+    }
+
+    /**
+     * Log consumption and write statistics
+     */
+    private static void logStatistics() {
+        long currentTime = System.currentTimeMillis();
+        double elapsedSecs = (currentTime - lastLogTime) / 1000.0;
+        double throughputMsgSec = totalMessagesConsumed > 0 ? totalMessagesConsumed / elapsedSecs : 0;
+        double writeThroughput = totalMessagesWritten > 0 ? totalMessagesWritten / elapsedSecs : 0;
+
+        System.out.printf(
+            "[%s] Consumed: %d | Written: %d | Write Errors: %d | Throughput: %.2f msg/sec | Write Rate: %.2f msg/sec%n",
+            System.currentTimeMillis(),
+            totalMessagesConsumed,
+            totalMessagesWritten,
+            totalWriteErrors,
+            throughputMsgSec,
+            writeThroughput
+        );
+    }
+}
