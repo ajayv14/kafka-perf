@@ -1,0 +1,24 @@
+groups:
+  - name: kafka_throughput
+    interval: 30s
+    rules:
+      # Network throughput in KB/sec
+      - record: kafka_broker_bytes_in_kb_per_sec
+        expr: sum by(instance) (rate(kafka_broker_bytes_in_total[5m])) / 1024
+      
+      - record: kafka_broker_bytes_out_kb_per_sec
+        expr: sum by(instance) (rate(kafka_broker_bytes_out_total[5m])) / 1024
+      
+      # Cluster-wide network throughput in KB/sec
+      - record: kafka_cluster_bytes_in_kb_per_sec
+        expr: sum(rate(kafka_broker_bytes_in_total[5m])) / 1024
+      
+      - record: kafka_cluster_bytes_out_kb_per_sec
+        expr: sum(rate(kafka_broker_bytes_out_total[5m])) / 1024
+      
+      # Message throughput (messages/sec)
+      - record: kafka_broker_messages_in_per_sec
+        expr: sum by(instance) (rate(kafka_broker_messages_in_total[5m]))
+      
+      - record: kafka_cluster_messages_in_per_sec
+        expr: sum(rate(kafka_broker_messages_in_total[5m]))
