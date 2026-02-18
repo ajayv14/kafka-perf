@@ -22,7 +22,7 @@ public class BaselineProducer {
     private static boolean txnEnabled = false;
     private static int txnBatchSize = 1000;
     private static int messageSizeBytes = 1024;
-    private static int flushIntervalRecords = 10000;
+    //private static int flushIntervalRecords = 10000;
 
     public static void main(String[] args) throws Exception {
 
@@ -56,9 +56,9 @@ public class BaselineProducer {
             benchmarkProps.getProperty("producer.message.size.bytes", "1024")
         );
 
-        flushIntervalRecords = Integer.parseInt(
+        /*flushIntervalRecords = Integer.parseInt(
             benchmarkProps.getProperty("producer.flush.interval.records", "10000")
-        );
+        );*/
 
         // Build Kafka producer properties
         Properties props = new Properties();
@@ -155,7 +155,7 @@ public class BaselineProducer {
                     ProducerRecord<String, String> record =
                             new ProducerRecord<>(TOPIC, "warmup-key", payload);
                     producer.send(record);
-                    if (i % flushIntervalRecords == 0 && i != 0) producer.flush();
+                   // if (i % flushIntervalRecords == 0 && i != 0) producer.flush();
                 }
                 
                 // FIX: Conditional transaction commit in warmup
@@ -195,7 +195,7 @@ public class BaselineProducer {
                 });
 
                 // Periodic flush to bound memory usage and push larger batches
-                if (i % flushIntervalRecords == 0 && i != 0) producer.flush();
+                //if (i % flushIntervalRecords == 0 && i != 0) producer.flush();
             }
 
             latch.await(); // wait for all acks
