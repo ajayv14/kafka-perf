@@ -1,6 +1,8 @@
 package com.kafka.perf.baseline;
 
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
 
@@ -22,6 +24,7 @@ public class BaselineProducer {
     private static boolean txnEnabled = false;
     private static int txnBatchSize = 1000;
     private static int messageSizeBytes = 1024;
+    private static int targetThroughput = 0; // messages per second, 0 = unlimited
     //private static int flushIntervalRecords = 10000;
 
     public static void main(String[] args) throws Exception {
@@ -54,6 +57,9 @@ public class BaselineProducer {
         TOPIC = benchmarkProps.getProperty("producer.topic", "eos-topic");
         messageSizeBytes = Integer.parseInt(
             benchmarkProps.getProperty("producer.message.size.bytes", "1024")
+        );
+        targetThroughput = Integer.parseInt(
+            benchmarkProps.getProperty("producer.target.throughput", "0")
         );
 
         /*flushIntervalRecords = Integer.parseInt(
@@ -112,15 +118,29 @@ public class BaselineProducer {
         props.put(ProducerConfig.BUFFER_MEMORY_CONFIG,
                 benchmarkProps.getProperty("buffer.memory", "67108864"));
 
+        // Read message sample file once
+        String payload;
+        String sampleFilePath = "message-sample-1kb.txt";
+        try {
+            payload = new String(Files.readAllBytes(Paths.get(sampleFilePath)));
+            System.out.printf("Loaded message sample from %s (%d bytes)%n", sampleFilePath, payload.length());
+        } catch (Exception e) {
+            System.err.println("Warning: Could not read " + sampleFilePath + ", generating payload instead");
+            StringBuilder sb = new StringBuilder(messageSizeBytes);
+            while (sb.length() < messageSizeBytes) sb.append('v');
+            payload = sb.substring(0, messageSizeBytes);
+        }
+
         System.out.println("==== Baseline Producer Test ====");
         System.out.printf("Iterations: %d%n", NUM_ITERATIONS);
         System.out.printf("Records per iteration: %d%n", NUM_RECORDS);
-        System.out.printf("Warmup records: %d%n%n", WARMUP_RECORDS);
+        System.out.printf("Warmup records: %d%n", WARMUP_RECORDS);
+        System.out.printf("Target throughput: %s%n%n", targetThroughput == 0 ? "unlimited" : targetThroughput + " msg/sec");
 
         for (int iter = 1; iter <= NUM_ITERATIONS; iter++) {
             System.out.printf("==== Starting Iteration %d/%d ====%n", iter, NUM_ITERATIONS);
             
-            runIteration(props, iter);
+            runIteration(props, iter, payload);
             
             if (iter < NUM_ITERATIONS) {
                 System.out.printf("Cooling down for %dms...%n%n", INTER_TEST_DELAY_MS);
@@ -131,18 +151,13 @@ public class BaselineProducer {
         System.out.println("\n==== Baseline Producer Test Completed ====");
     }
 
-    private static void runIteration(Properties props, int iterationNum) throws Exception {
+    private static void runIteration(Properties props, int iterationNum, String payload) throws Exception {
         KafkaProducer<String, String> producer = new KafkaProducer<>(props);
         
         // CRITICAL FIX: Only initialize transactions when enabled
         if (txnEnabled) {
             producer.initTransactions();
         }
-
-        // Create payload once and reuse for both warmup and measured run
-        StringBuilder sb = new StringBuilder(messageSizeBytes);
-        while (sb.length() < messageSizeBytes) sb.append('v');
-        String payload = sb.substring(0, messageSizeBytes);
 
         // Warmup phase
         if (iterationNum == 1) {
@@ -177,6 +192,7 @@ public class BaselineProducer {
 
         // Measured run
         CountDownLatch latch = new CountDownLatch(NUM_RECORDS);
+        long startTime = System.nanoTime();
 
         try {
 
@@ -193,6 +209,20 @@ public class BaselineProducer {
                         exception.printStackTrace();
                     }
                 });
+
+                // Rate limiting: sleep if we're ahead of target throughput
+                if (targetThroughput > 0 && i > 0 && i % 100 == 0) {
+                    long elapsedNanos = System.nanoTime() - startTime;
+                    long expectedNanos = (long) ((i + 1) * 1_000_000_000.0 / targetThroughput);
+                    long sleepNanos = expectedNanos - elapsedNanos;
+                    if (sleepNanos > 0) {
+                        long sleepMillis = sleepNanos / 1_000_000;
+                        int sleepNanosRemainder = (int) (sleepNanos % 1_000_000);
+                        if (sleepMillis > 0 || sleepNanosRemainder > 0) {
+                            Thread.sleep(sleepMillis, sleepNanosRemainder);
+                        }
+                    }
+                }
 
                 // Periodic flush to bound memory usage and push larger batches
                 //if (i % flushIntervalRecords == 0 && i != 0) producer.flush();
