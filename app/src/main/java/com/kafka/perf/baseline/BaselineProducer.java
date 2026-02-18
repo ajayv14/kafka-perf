@@ -1,6 +1,6 @@
 package com.kafka.perf.baseline;
 
-import java.io.FileInputStream;
+import java.io.InputStream;
 import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
 
@@ -21,13 +21,18 @@ public class BaselineProducer {
     private static String TOPIC;
     private static boolean txnEnabled = false;
     private static int txnBatchSize = 1000;
+    private static int messageSizeBytes = 1024;
+    private static int flushIntervalRecords = 10000;
 
     public static void main(String[] args) throws Exception {
 
-        // Load properties from benchmark.properties
+        // Load properties from benchmark.properties (classpath)
         Properties benchmarkProps = new Properties();
-        try (FileInputStream fis = new FileInputStream("src/main/resources/benchmark.properties")) {
-            benchmarkProps.load(fis);
+        try (InputStream is = BaselineProducer.class.getResourceAsStream("/benchmark.properties")) {
+            if (is == null) {
+                throw new java.io.FileNotFoundException("benchmark.properties not found on classpath");
+            }
+            benchmarkProps.load(is);
         } catch (Exception e) {
             System.err.println("Error loading benchmark.properties: " + e.getMessage());
             throw e;
@@ -47,6 +52,13 @@ public class BaselineProducer {
                 benchmarkProps.getProperty("producer.inter.test.delay.ms", "5000")
         );
         TOPIC = benchmarkProps.getProperty("producer.topic", "eos-topic");
+        messageSizeBytes = Integer.parseInt(
+            benchmarkProps.getProperty("producer.message.size.bytes", "1024")
+        );
+
+        flushIntervalRecords = Integer.parseInt(
+            benchmarkProps.getProperty("producer.flush.interval.records", "10000")
+        );
 
         // Build Kafka producer properties
         Properties props = new Properties();
@@ -67,36 +79,28 @@ public class BaselineProducer {
                 benchmarkProps.getProperty("txn.batch.size", "1000")
         );
 
+        props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG,
+                    benchmarkProps.getProperty("enable.idempotence", "true"));
+        
+        props.put(ProducerConfig.ACKS_CONFIG,
+                    benchmarkProps.getProperty("acks", "all"));  
+                    
+        props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
+                    benchmarkProps.getProperty("max.in.flight.requests.per.connection", "5"));            
+
+        props.put(ProducerConfig.RETRIES_CONFIG,
+                    benchmarkProps.getProperty("retries", String.valueOf(Integer.MAX_VALUE)));    
+
         // Configure based on transaction mode
         if (txnEnabled) {
-            // Transaction mode - force EOS settings
-                props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG,
-                    benchmarkProps.getProperty("enable.idempotence", "true"));
-                props.put(ProducerConfig.ACKS_CONFIG,
-                    benchmarkProps.getProperty("acks", "all"));
-                props.put(ProducerConfig.RETRIES_CONFIG,
-                    benchmarkProps.getProperty("retries", String.valueOf(Integer.MAX_VALUE)));
-                props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
-                    benchmarkProps.getProperty("max.in.flight.requests.per.connection", "5"));
-            
+                   
             // CRITICAL: Only set transactional ID when transactions are enabled
             props.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG,
                     benchmarkProps.getProperty("transactional.id"));
             
             System.out.println("Transaction mode: ENABLED");
-        } else {
-            // Non-transaction mode - use config file settings
-            props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG,
-                    benchmarkProps.getProperty("enable.idempotence", "false"));
-            props.put(ProducerConfig.ACKS_CONFIG,
-                    benchmarkProps.getProperty("acks", "1"));
-            props.put(ProducerConfig.RETRIES_CONFIG,
-                    benchmarkProps.getProperty("retries", "0"));
-            props.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
-                    benchmarkProps.getProperty("max.in.flight.requests.per.connection", "5"));
-            
-            System.out.println("Transaction mode: DISABLED");
-        }
+        } 
+                        
 
         // Performance tuning (common to both modes)
         props.put(ProducerConfig.LINGER_MS_CONFIG,
@@ -135,17 +139,23 @@ public class BaselineProducer {
             producer.initTransactions();
         }
 
+        // Create payload once and reuse for both warmup and measured run
+        StringBuilder sb = new StringBuilder(messageSizeBytes);
+        while (sb.length() < messageSizeBytes) sb.append('v');
+        String payload = sb.substring(0, messageSizeBytes);
+
         // Warmup phase
         if (iterationNum == 1) {
             System.out.printf("Warmup: sending %d records...%n", WARMUP_RECORDS);
             try {
                 // FIX: Conditional transaction begin in warmup
                 if (txnEnabled) producer.beginTransaction();
-                
+
                 for (int i = 0; i < WARMUP_RECORDS; i++) {
                     ProducerRecord<String, String> record =
-                            new ProducerRecord<>(TOPIC, "warmup-key", "warmup-value");
+                            new ProducerRecord<>(TOPIC, "warmup-key", payload);
                     producer.send(record);
+                    if (i % flushIntervalRecords == 0 && i != 0) producer.flush();
                 }
                 
                 // FIX: Conditional transaction commit in warmup
@@ -174,7 +184,7 @@ public class BaselineProducer {
 
             for (int i = 0; i < NUM_RECORDS; i++) {
                 ProducerRecord<String, String> record =
-                        new ProducerRecord<>(TOPIC, "key-" + i, "value-" + i);
+                        new ProducerRecord<>(TOPIC, "key-" + i, payload);
 
                 producer.send(record, (metadata, exception) -> {
                     latch.countDown();
@@ -183,6 +193,9 @@ public class BaselineProducer {
                         exception.printStackTrace();
                     }
                 });
+
+                // Periodic flush to bound memory usage and push larger batches
+                if (i % flushIntervalRecords == 0 && i != 0) producer.flush();
             }
 
             latch.await(); // wait for all acks

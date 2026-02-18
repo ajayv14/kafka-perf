@@ -60,10 +60,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
+          cpus: '2'
           memory: 4G
         reservations:
-          cpus: '1'
+          cpus: '2'
           memory: 4G  
                   
     volumes:
@@ -126,10 +126,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
+          cpus: '2'
           memory: 4G
         reservations:
-          cpus: '1'
+          cpus: '2'
           memory: 4G  
         
     volumes:
@@ -192,10 +192,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
+          cpus: '2'
           memory: 4G
         reservations:
-          cpus: '1'
+          cpus: '2'
           memory: 4G    
     volumes:
       - kafka3_data:/var/lib/kafka/data
