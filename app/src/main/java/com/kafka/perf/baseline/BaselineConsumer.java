@@ -7,6 +7,8 @@ import java.util.Properties;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Baseline Kafka Consumer - Simple consumer without performance measurement overhead.
@@ -14,13 +16,15 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
  */
 public class BaselineConsumer {
 
+    private static final Logger logger = LoggerFactory.getLogger(BaselineConsumer.class);
+
     public static void main(String[] args) throws Exception {
         
         // Load configuration from centralized config class
         KafkaConsumerConfig config = KafkaConsumerConfig.load();
         
-        System.out.println("==== Baseline Consumer ====");
-        System.out.println(config);
+        logger.info("==== Baseline Consumer ====");
+        logger.info("{}", config);
 
         // Run consumer
         runConsumer(config);

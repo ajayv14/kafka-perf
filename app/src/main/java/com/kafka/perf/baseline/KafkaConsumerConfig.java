@@ -3,6 +3,9 @@ package com.kafka.perf.baseline;
 import java.io.InputStream;
 import java.util.Properties;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Configuration loader for Kafka consumers.
  * Centralizes property loading and initialization for both BaselineConsumer and PostgresSinkConsumer.
@@ -10,6 +13,8 @@ import java.util.Properties;
  * Loads configuration from benchmark.properties with environment variable overrides.
  */
 public class KafkaConsumerConfig {
+
+    private static final Logger logger = LoggerFactory.getLogger(KafkaConsumerConfig.class);
 
     // Kafka Configuration
     public String bootstrapServers;
@@ -57,7 +62,7 @@ public class KafkaConsumerConfig {
             }
             benchmarkProps.load(is);
         } catch (Exception e) {
-            System.err.println("Error loading benchmark.properties: " + e.getMessage());
+            logger.error("Error loading benchmark.properties: {}", e.getMessage());
             throw e;
         }
 

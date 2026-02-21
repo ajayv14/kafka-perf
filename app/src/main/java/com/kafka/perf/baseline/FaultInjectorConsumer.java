@@ -13,6 +13,8 @@ import java.util.UUID;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.kafka.perf.faults.FaultConfig;
 import com.kafka.perf.faults.FaultInjector;
@@ -37,6 +39,8 @@ import com.kafka.perf.faults.FaultType;
  */
 public class FaultInjectorConsumer {
 
+    private static final Logger logger = LoggerFactory.getLogger(FaultInjectorConsumer.class);
+
     // Statistics
     private static long totalMessagesConsumed = 0;
     private static long totalMessagesWritten = 0;
@@ -60,12 +64,10 @@ public class FaultInjectorConsumer {
         // Load fault scheduler for sequential injection with probability-based injection
         faultScheduler = FaultScheduler.load(faultConfig);
         
-        System.out.println("==== FaultInjector Sink Consumer ====");
-        System.out.println(config);
-        System.out.println();
-        System.out.println(faultConfig);
-        System.out.println();
-        System.out.println(faultScheduler);
+        logger.info("==== FaultInjector Sink Consumer ====");
+        logger.info("{}", config);
+        logger.info("{}", faultConfig);
+        logger.info("{}", faultScheduler);
 
         // Initialize database connection pool
         dbConfig = new DBConfig("FaultInjectorConsumer");
@@ -74,7 +76,7 @@ public class FaultInjectorConsumer {
         // Initialize fault injector with seed for reproducibility
         long seed = System.currentTimeMillis();
         faultInjector = new FaultInjector(faultConfig, seed);
-        System.out.println("[FaultInjectorConsumer] Fault injector initialized with seed: " + seed);
+        logger.info("Fault injector initialized with seed: {}", seed);
         
         try {
             // Verify database connectivity before starting consumer
@@ -147,7 +149,13 @@ public class FaultInjectorConsumer {
             
         } catch (SQLException e) {
             totalWriteErrors++;
-            throw e; // Propagate to trigger transaction rollback
+            logger.warn("[TRANSACTION] Rolling back batch due to error: {}", e.getMessage());
+            try {
+                conn.rollback();
+            } catch (SQLException rollbackEx) {
+                logger.error("Failed to rollback transaction: {}", rollbackEx.getMessage());
+            }
+            throw e;
         }
     }
 
@@ -185,90 +193,51 @@ public class FaultInjectorConsumer {
             int subsetSize = Math.max(1, records.size() / 2);
             recordsToWrite = new ArrayList<>(records.subList(0, subsetSize));
             totalPartialWrites++;
-            System.out.printf("[F3_PARTIAL_BATCH_WRITES] Writing %d/%d records from batch (%.0f%%)%n", 
-                subsetSize, records.size(), (100.0 * subsetSize / records.size()));
+            logger.info("[F3_PARTIAL_BATCH_WRITES] Writing {}/{} records from batch ({:.0f}%)", 
+                subsetSize, records.size(), (subsetSize * 100.0 / records.size()));
         }
-
-        // Execute transactional write with retry logic
+        
+        // Write the batch (or subset) with retries
         int maxRetries = 3;
-        int retryCount = 0;
-        long backoffMs = 100;
-        SQLException lastException = null;
-
-        while (retryCount < maxRetries) {
+        int attempt = 0;
+        
+        while (attempt < maxRetries) {
+            attempt++;
             Connection conn = null;
             try {
                 conn = dbConfig.getConnection();
-                conn.setAutoCommit(false); // Start transaction
                 
-                // Write batch in database transaction
+                // Write batch transactionally
                 writeBatchTransactionally(config, recordsToWrite, conn);
-                
-                // Commit transaction - atomic write of data
                 conn.commit();
                 
-                totalMessagesConsumed += recordsToWrite.size();
-                
-                // Commit offsets to Kafka after successful database commit
-                // This ensures at-least-once with idempotent writes (UPSERT handles duplicates)
-                if (!config.enableAutoCommit) {
-                    consumer.commitSync();
+                // Log skipped records if F3 was applied
+                if (applyPartialWrites) {
+                    int skipped = records.size() - recordsToWrite.size();
+                    logger.warn("[F3_PARTIAL_BATCH_WRITES] Skipped {} records (will be retried on next poll)", skipped);
                 }
                 
-                // Log skipped records from partial writes (will be retried on next poll)
-                if (applyPartialWrites && recordsToWrite.size() < records.size()) {
-                    System.out.printf("[F3_PARTIAL_BATCH_WRITES] Skipped %d records (will be retried on next poll)%n", 
-                        records.size() - recordsToWrite.size());
-                }
-                
-                return; // Success
+                return; // Success, exit retry loop
                 
             } catch (SQLException e) {
-                lastException = e;
-                retryCount++;
-                
-                // Rollback transaction on failure
-                if (conn != null) {
-                    try {
-                        conn.rollback();
-                        System.err.printf("[TRANSACTION] Rolled back batch due to error: %s%n", e.getMessage());
-                    } catch (SQLException rollbackEx) {
-                        System.err.printf("[ERROR] Failed to rollback transaction: %s%n", rollbackEx.getMessage());
-                    }
-                }
-                
-                if (retryCount >= maxRetries) {
-                    System.err.printf("[ERROR] Failed to process batch after %d attempts. Last error: %s%n", 
+                totalWriteErrors++;
+                if (attempt == maxRetries) {
+                    logger.error("[ERROR] Failed to process batch after {} attempts. Last error: {}", 
                         maxRetries, e.getMessage());
-                    throw e; // Fail the batch - will cause consumer to retry entire batch
+                    throw e;
+                } else {
+                    logger.warn("[WARN] Transaction failed, attempt {}/{}: {}. Retrying...",
+                        attempt, maxRetries, e.getMessage());
                 }
-                
-                System.err.printf("[WARN] Transaction failed, attempt %d/%d: %s. Retrying...%n",
-                    retryCount, maxRetries, e.getMessage());
-                
-                try {
-                    Thread.sleep(backoffMs);
-                    backoffMs = Math.min(backoffMs * 2, 1000);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    throw new SQLException("Transaction retry interrupted", ie);
-                }
-                
             } finally {
                 if (conn != null) {
                     try {
-                        conn.setAutoCommit(true); // Restore auto-commit
                         conn.close();
                     } catch (SQLException e) {
-                        System.err.printf("[WARN] Failed to close connection: %s%n", e.getMessage());
+                        logger.warn("Failed to close connection: {}", e.getMessage());
                     }
                 }
             }
-        }
-        
-        // Should not reach here, but throw last exception if we do
-        if (lastException != null) {
-            throw lastException;
         }
     }
 
@@ -305,11 +274,11 @@ public class FaultInjectorConsumer {
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
         consumer.subscribe(Collections.singletonList(config.topic));
 
-        System.out.println("[FaultInjectorConsumer] Started consuming from topic: " + config.topic);
-        System.out.println("[FaultInjectorConsumer] Consumer Group: " + config.groupId);
-        System.out.println("[FaultInjectorConsumer] Bootstrap Servers: " + config.bootstrapServers);
-        System.out.println("[FaultInjectorConsumer] Fault injection ENABLED");
-        System.out.println("[FaultInjectorConsumer] Transactional writes with Kafka offset management");
+        logger.info("Started consuming from topic: {}", config.topic);
+        logger.info("Consumer Group: {}", config.groupId);
+        logger.info("Bootstrap Servers: {}", config.bootstrapServers);
+        logger.info("Fault injection ENABLED");
+        logger.info("Transactional writes with Kafka offset management");
 
         try {
             while (true) {
@@ -348,7 +317,7 @@ public class FaultInjectorConsumer {
                 } catch (SQLException e) {
                     // Transaction failed and rolled back - records will be re-consumed
                     // UPSERT ensures no duplicates on retry
-                    System.err.printf("[ERROR] Batch processing failed, will retry batch on next poll: %s%n", 
+                    logger.error("[ERROR] Batch processing failed, will retry batch on next poll: {}", 
                         e.getMessage());
                     // Sleep before next poll to avoid tight loop on persistent errors
                     try {
@@ -364,15 +333,15 @@ public class FaultInjectorConsumer {
             try {
                 if (!config.enableAutoCommit) {
                     consumer.commitSync();
-                    System.out.println("[FaultInjectorConsumer] Final offset commit completed");
+                    logger.info("Final offset commit completed");
                 }
             } catch (Exception e) {
-                System.err.printf("[WARN] Failed to commit final offsets: %s%n", e.getMessage());
+                logger.warn("Failed to commit final offsets: {}", e.getMessage());
             }
             
             consumer.close();
-            System.out.println("[FaultInjectorConsumer] Consumer closed gracefully");
-            System.out.printf("[STATS] Total consumed: %d | Written: %d | Errors: %d | Partial writes: %d%n",
+            logger.info("Consumer closed gracefully");
+            logger.info("[STATS] Total consumed: {} | Written: {} | Errors: {} | Partial writes: {}",
                 totalMessagesConsumed, totalMessagesWritten, totalWriteErrors, totalPartialWrites);
         }
     }

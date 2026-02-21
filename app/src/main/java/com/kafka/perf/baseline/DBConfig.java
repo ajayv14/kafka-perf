@@ -3,6 +3,9 @@ package com.kafka.perf.baseline;
 import java.sql.Connection;
 import java.sql.SQLException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -13,6 +16,8 @@ import com.zaxxer.hikari.HikariDataSource;
  * with retry logic. Shared by PostgresSinkConsumer and FaultInjectorConsumer.
  */
 public class DBConfig {
+
+    private static final Logger logger = LoggerFactory.getLogger(DBConfig.class);
 
     private HikariDataSource dataSource;
     private final String consumerName;
@@ -78,9 +83,9 @@ public class DBConfig {
                     throw e;
                 }
                 long elapsedMs = System.currentTimeMillis() - verifyStartTime;
-                System.err.printf("[%s] Connection attempt %d/%d failed (%dms elapsed): %s%n", 
+                logger.error("[{}] Connection attempt {}/{} failed ({}ms elapsed): {}",
                     consumerName, retryCount, maxRetries, elapsedMs, e.getMessage());
-                System.err.printf("[%s] Retrying in %dms...%n", consumerName, backoffMs);
+                logger.error("[{}] Retrying in {}ms...", consumerName, backoffMs);
                 try {
                     Thread.sleep(backoffMs);
                     backoffMs = Math.min(backoffMs * 2, 5000);
@@ -108,7 +113,7 @@ public class DBConfig {
                 if (retryCount >= maxRetries) {
                     throw new SQLException("Failed to get connection from pool after " + maxRetries + " attempts: " + e.getMessage(), e);
                 }
-                System.err.printf("[%s] Failed to get pooled connection, attempt %d/%d: %s%n", 
+                logger.error("[{}] Failed to get pooled connection, attempt {}/{}: {}",
                     consumerName, retryCount, maxRetries, e.getMessage());
                 try {
                     Thread.sleep(backoffMs);
@@ -143,13 +148,13 @@ public class DBConfig {
      * Log message with consumer name prefix
      */
     private void log(String message) {
-        System.out.println("[" + consumerName + "] " + message);
+        logger.info("[{}] {}", consumerName, message);
     }
 
     /**
      * Log error message with consumer name prefix
      */
     private void logErr(String message) {
-        System.err.println("[" + consumerName + "] " + message);
+        logger.error("[{}] {}", consumerName, message);
     }
 }
