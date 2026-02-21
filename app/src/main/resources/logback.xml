@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Define properties -->
+    <property name="LOG_FILE" value="kafka-perf-app.log"/>
+    <property name="LOG_PATTERN" value="%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"/>
+
+    <!-- Console Appender -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Rolling File Appender -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_FILE}</file>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- Rollover based on file size -->
+            <fileNamePattern>${LOG_FILE}.%i.%d{yyyy-MM-dd}</fileNamePattern>
+            <!-- Max file size of 10MB -->
+            <maxFileSize>10MB</maxFileSize>
+            <!-- Keep up to 5 backup files -->
+            <maxHistory>5</maxHistory>
+        </rollingPolicy>
+    </appender>
+
+    <!-- Logger configurations -->
+    <!-- Set DEBUG level for com.kafka.perf packages -->
+    <logger name="com.kafka.perf" level="DEBUG"/>
+
+    <!-- Suppress verbose logs from Apache Kafka -->
+    <logger name="org.apache.kafka" level="WARN"/>
+
+    <!-- Suppress verbose logs from Hibernate if present -->
+    <logger name="org.hibernate" level="WARN"/>
+
+    <!-- Root logger -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+</configuration>

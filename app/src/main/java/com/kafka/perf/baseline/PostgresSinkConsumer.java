@@ -1,7 +1,6 @@
 package com.kafka.perf.baseline;
 
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.time.Duration;
@@ -12,6 +11,8 @@ import java.util.UUID;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * PostgreSQL Sink Consumer - Identical to BaselineConsumer but writes to PostgreSQL.
@@ -33,6 +34,8 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
  */
 public class PostgresSinkConsumer {
 
+    private static final Logger logger = LoggerFactory.getLogger(PostgresSinkConsumer.class);
+
     // Statistics
     private static long totalMessagesConsumed = 0;
     private static long totalMessagesWritten = 0;
@@ -47,8 +50,8 @@ public class PostgresSinkConsumer {
         // Load configuration from centralized config class
         KafkaConsumerConfig config = KafkaConsumerConfig.load();
         
-        System.out.println("==== PostgreSQL Sink Consumer ====");
-        System.out.println(config);
+        logger.info("==== PostgreSQL Sink Consumer ====");
+        logger.info("{}", config);
 
         // Initialize database connection pool
         dbConfig = new DBConfig("PostgresSinkConsumer");
@@ -98,11 +101,11 @@ public class PostgresSinkConsumer {
                 retryCount++;
                 if (retryCount >= maxRetries) {
                     totalWriteErrors++;
-                    System.err.printf("[ERROR] Failed to write message (offset=%d) after %d attempts: %s%n", 
+                    logger.error("[ERROR] Failed to write message (offset={}) after {} attempts: {}",
                         offset, maxRetries, e.getMessage());
                     return; // Give up
                 }
-                System.err.printf("[WARN] Failed to write message (offset=%d), attempt %d/%d: %s. Retrying...%n",
+                logger.warn("[WARN] Failed to write message (offset={}), attempt {}/{}: {}. Retrying...",
                     offset, retryCount, maxRetries, e.getMessage());
                 try {
                     Thread.sleep(backoffMs);
@@ -110,7 +113,7 @@ public class PostgresSinkConsumer {
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     totalWriteErrors++;
-                    System.err.printf("[ERROR] Write interrupted (offset=%d): %s%n", offset, ie.getMessage());
+                    logger.error("[ERROR] Write interrupted (offset={}): {}", offset, ie.getMessage());
                     return;
                 }
             }
@@ -153,9 +156,9 @@ public class PostgresSinkConsumer {
         long lastCommitTime = System.currentTimeMillis();
         long recordsInBatch = 0;
 
-        System.out.println("[PostgresSinkConsumer] Started consuming from topic: " + config.topic);
-        System.out.println("[PostgresSinkConsumer] Consumer Group: " + config.groupId);
-        System.out.println("[PostgresSinkConsumer] Bootstrap Servers: " + config.bootstrapServers);
+        logger.info("Started consuming from topic: {}", config.topic);
+        logger.info("Consumer Group: {}", config.groupId);
+        logger.info("Bootstrap Servers: {}", config.bootstrapServers);
 
         try {
             while (true) {
@@ -199,7 +202,7 @@ public class PostgresSinkConsumer {
             } finally {
                 consumer.close();
                 logStatistics();
-                System.out.println("[PostgresSinkConsumer] Consumer closed gracefully");
+                logger.info("Consumer closed gracefully");
             }
         }
     }
@@ -213,8 +216,7 @@ public class PostgresSinkConsumer {
         double throughputMsgSec = totalMessagesConsumed > 0 ? totalMessagesConsumed / elapsedSecs : 0;
         double writeThroughput = totalMessagesWritten > 0 ? totalMessagesWritten / elapsedSecs : 0;
 
-        System.out.printf(
-            "[%s] Consumed: %d | Written: %d | Write Errors: %d | Throughput: %.2f msg/sec | Write Rate: %.2f msg/sec%n",
+        logger.info("[{}] Consumed: {} | Written: {} | Write Errors: {} | Throughput: {:.2f} msg/sec | Write Rate: {:.2f} msg/sec",
             System.currentTimeMillis(),
             totalMessagesConsumed,
             totalMessagesWritten,

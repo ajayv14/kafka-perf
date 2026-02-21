@@ -6,6 +6,9 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * FaultScheduler - Manages SEQUENTIAL fault injection by message count.
  * 
@@ -30,6 +33,8 @@ import java.util.Random;
  * etc.
  */
 public class FaultScheduler {
+
+    private static final Logger logger = LoggerFactory.getLogger(FaultScheduler.class);
 
     // Scheduler configuration for sequential injection
     private static class SequentialScheduleConfig {
@@ -71,7 +76,7 @@ public class FaultScheduler {
         Properties props = new Properties();
         try (InputStream is = FaultScheduler.class.getResourceAsStream("/faults.properties")) {
             if (is == null) {
-                System.out.println("[FaultScheduler] faults.properties not found, using defaults");
+                logger.debug("faults.properties not found, using defaults");
                 return new FaultScheduler(faultConfig);
             }
             props.load(is);
@@ -97,7 +102,7 @@ public class FaultScheduler {
             
             String breakInfo = breakDuration > 0 ? String.format(" with %d msg breaks", breakDuration) : "";
             String probInfo = faultConfig != null ? " (with probability-based injection)" : "";
-            System.out.printf("[FaultScheduler] Sequential mode enabled: %d msgs per fault%s, %d full cycles (F1->F2->...->F6)%s%n",
+            logger.info("Sequential mode enabled: {} msgs per fault{}, {} full cycles (F1->F2->...->F6){}",
                 durationPerFault, breakInfo, iterations, probInfo);
         }
         
@@ -190,7 +195,7 @@ public class FaultScheduler {
         if (positionInCycle == faultWindowStart) {
             long breakWindowEnd = faultWindowStart + sequentialConfig.durationPerFaultMessages + sequentialConfig.breakDurationMessages;
             String probInfo = faultConfig != null ? String.format(" (%.0f%% probability)", faultConfig.getProbability(faultType) * 100) : "";
-            System.out.printf("[FaultScheduler] >>> Starting %s (cycle %d, msgs %d-%d)%s, then break until msg %d%n",
+            logger.info(">>> Starting {} (cycle {}, msgs {}-{}){}, then break until msg {}",
                 faultType, currentCycle + 1, 
                 currentCycle * cycleLengthMessages + faultWindowStart,
                 currentCycle * cycleLengthMessages + faultWindowEnd,
@@ -200,13 +205,13 @@ public class FaultScheduler {
         
         // Log when exiting a fault window and entering break (if break exists)
         if (positionInCycle == faultWindowEnd && sequentialConfig.breakDurationMessages > 0 && faultIndex < 5) {
-            System.out.printf("[FaultScheduler] <<< Completed %s, entering break period%n", faultType);
+            logger.info("<<< Completed {}, entering break period", faultType);
         }
         
         // Log when exiting break and starting next fault
         if (positionInCycle == faultWindowStart && sequentialConfig.breakDurationMessages > 0 && faultIndex < 5) {
             int prevFaultIndex = (faultIndex + 5) % 6; // Get previous fault (handles F1 -> F6 wrap)
-            System.out.printf("[FaultScheduler] <<< Break completed after %s, starting %s%n",
+            logger.info("<<< Break completed after {}, starting {}",
                 FaultType.values()[prevFaultIndex], faultType);
         }
         

@@ -2,7 +2,12 @@ package com.kafka.perf.faults;
 
 import java.util.Random;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class FaultInjector {
+
+    private static final Logger logger = LoggerFactory.getLogger(FaultInjector.class);
 
     private final FaultConfig config;
     private final Random random;
@@ -17,7 +22,7 @@ public class FaultInjector {
             return false;
         }
 
-        System.out.println("Injecting fault: " + type);
+        logger.info("Injecting fault: {}", type);
 
         switch (type) {
 
@@ -30,7 +35,7 @@ public class FaultInjector {
             case F3_PARTIAL_BATCH_WRITES ->
                 // Method in consumer checks only for maybeInject() and applies a fixed 50% failure.
                 // Hence this case does not need to do anything here, just log the fault injection.
-                System.out.println("Partial batch writes enabled for current batch");
+                logger.info("Partial batch writes enabled for current batch");
 
             case F4_DB_CONTAINER_RESTART ->
                 restartPostgres();     
@@ -48,7 +53,7 @@ public class FaultInjector {
     }
 
     private void crash() {
-        System.err.println("Simulated crash");
+        logger.error("Simulated crash");
         System.exit(1);
     }
 
@@ -66,13 +71,13 @@ public class FaultInjector {
 
     public static void restartPostgres() {
         try {
-            System.out.println("Restarting Postgres container...");
+            logger.info("Restarting Postgres container...");
             ProcessBuilder pb =
                 new ProcessBuilder("docker", "restart", "postgres");
             pb.inheritIO();
             pb.start().waitFor();
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Failed to restart Postgres", e);
         }
     }
 }

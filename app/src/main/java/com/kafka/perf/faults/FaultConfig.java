@@ -6,6 +6,9 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Fault configuration loader for chaos engineering tests.
  * 
@@ -13,6 +16,8 @@ import java.util.Random;
  * Supports dynamic fault injection for testing Kafka consumer resilience.
  */
 public class FaultConfig {
+
+    private static final Logger logger = LoggerFactory.getLogger(FaultConfig.class);
 
     private final Map<FaultType, Double> probability = new EnumMap<>(FaultType.class);
 
@@ -41,12 +46,12 @@ public class FaultConfig {
         Properties faultProps = new Properties();
         try (InputStream is = FaultConfig.class.getResourceAsStream("/faults.properties")) {
             if (is == null) {
-                System.out.println("[FaultConfig] faults.properties not found on classpath, using defaults");
+                logger.debug("faults.properties not found on classpath, using defaults");
                 return new FaultConfig(true);
             }
             faultProps.load(is);
         } catch (Exception e) {
-            System.err.println("[FaultConfig] Error loading faults.properties: " + e.getMessage());
+            logger.error("Error loading faults.properties: {}", e.getMessage());
             throw e;
         }
 
