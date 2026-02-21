@@ -17,3 +17,9 @@ CREATE TABLE sink_writes_log (
     phase TEXT,
     ts TIMESTAMP DEFAULT now()
 );
+
+
+
+ALTER TABLE your_sink_table 
+ADD CONSTRAINT unique_kafka_offset 
+UNIQUE (kafka_topic, kafka_partition, kafka_offset);

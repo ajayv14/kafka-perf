@@ -54,22 +54,22 @@ public class FaultConfig {
         
         // Load probabilities from properties file with environment variable overrides
         config.probability.put(FaultType.F1_CRASH_BEFORE_DB_COMMIT, 
-            Double.parseDouble(getOrEnv("fault.f1.crash.before.db.commit", "FAULT_F1_PROBABILITY", faultProps, "0.0")));
+            Double.valueOf(getOrEnv("fault.f1.crash.before.db.commit", "FAULT_F1_PROBABILITY", faultProps, "0.0")));
         
         config.probability.put(FaultType.F2_CRASH_AFTER_DB_COMMIT_BEFORE_ACK,
-            Double.parseDouble(getOrEnv("fault.f2.crash.after.db.commit.before.ack", "FAULT_F2_PROBABILITY", faultProps, "0.0")));
+            Double.valueOf(getOrEnv("fault.f2.crash.after.db.commit.before.ack", "FAULT_F2_PROBABILITY", faultProps, "0.0")));
         
         config.probability.put(FaultType.F3_PARTIAL_BATCH_WRITES,
-            Double.parseDouble(getOrEnv("fault.f3.partial.batch.writes", "FAULT_F3_PROBABILITY", faultProps, "0.0")));
+            Double.valueOf(getOrEnv("fault.f3.partial.batch.writes", "FAULT_F3_PROBABILITY", faultProps, "0.0")));
         
         config.probability.put(FaultType.F4_DB_CONTAINER_RESTART,
-            Double.parseDouble(getOrEnv("fault.f4.db.container.restart", "FAULT_F4_PROBABILITY", faultProps, "0.0")));
+            Double.valueOf(getOrEnv("fault.f4.db.container.restart", "FAULT_F4_PROBABILITY", faultProps, "0.0")));
         
         config.probability.put(FaultType.F5_SLOW_SINK_BACKPRESSURE,
-            Double.parseDouble(getOrEnv("fault.f5.slow.sink.backpressure", "FAULT_F5_PROBABILITY", faultProps, "0.0")));
+            Double.valueOf(getOrEnv("fault.f5.slow.sink.backpressure", "FAULT_F5_PROBABILITY", faultProps, "0.0")));
         
         config.probability.put(FaultType.F6_NETWORK_BOUNDARY_FAULT,
-            Double.parseDouble(getOrEnv("fault.f6.network.boundary.fault", "FAULT_F6_PROBABILITY", faultProps, "0.0")));
+            Double.valueOf(getOrEnv("fault.f6.network.boundary.fault", "FAULT_F6_PROBABILITY", faultProps, "0.0")));
         
         return config;
     }

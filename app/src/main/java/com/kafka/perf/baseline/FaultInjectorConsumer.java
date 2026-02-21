@@ -153,13 +153,13 @@ public class FaultInjectorConsumer {
         }
 
         // Check if F3 partial writes should be applied to this batch
-        boolean applyPartialWrites = faultInjector.shouldPartialWrite();
+        boolean applyPartialWrites = faultInjector.maybeInject(FaultType.F3_PARTIAL_BATCH_WRITES);
         
         List<org.apache.kafka.clients.consumer.ConsumerRecord<String, String>> recordsToWrite = records;
         
         if (applyPartialWrites) {
-            // Write only a subset (50-75%) of the batch - simulates processing failures
-            int subsetSize = Math.max(1, (int) (records.size() * (0.5 + Math.random() * 0.25)));
+            // Write only a fixed 50% subset of the batch - simulates processing failures
+            int subsetSize = Math.max(1, records.size() / 2);
             recordsToWrite = new ArrayList<>(records.subList(0, subsetSize));
             totalPartialWrites++;
             System.out.printf("[F3_PARTIAL_BATCH_WRITES] Writing %d/%d records from batch (%.0f%%)%n", 
