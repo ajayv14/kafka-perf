@@ -30,7 +30,7 @@ public class FaultInjector {
             case F3_PARTIAL_BATCH_WRITES ->
                 // Method in consumer checks only for maybeInject() and applies a fixed 50% failure.
                 // Hence this case does not need to do anything here, just log the fault injection.
-                System.out.println("🔄 Partial batch writes enabled for current batch");
+                System.out.println("Partial batch writes enabled for current batch");
 
             case F4_DB_CONTAINER_RESTART ->
                 restartPostgres();     

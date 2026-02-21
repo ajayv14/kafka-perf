@@ -14,8 +14,9 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 
-import com.kafka.perf.faults.FaultInjector;
 import com.kafka.perf.faults.FaultConfig;
+import com.kafka.perf.faults.FaultInjector;
+import com.kafka.perf.faults.FaultScheduler;
 import com.kafka.perf.faults.FaultType;
 
 /**
@@ -46,6 +47,7 @@ public class FaultInjectorConsumer {
     // Database configuration (initialized during startup)
     private static DBConfig dbConfig = null;
     private static FaultInjector faultInjector = null;
+    private static FaultScheduler faultScheduler = null;
 
     public static void main(String[] args) throws Exception {
         
@@ -55,10 +57,15 @@ public class FaultInjectorConsumer {
         // Load fault configuration
         FaultConfig faultConfig = FaultConfig.load();
         
+        // Load fault scheduler for sequential injection with probability-based injection
+        faultScheduler = FaultScheduler.load(faultConfig);
+        
         System.out.println("==== FaultInjector Sink Consumer ====");
         System.out.println(config);
         System.out.println();
         System.out.println(faultConfig);
+        System.out.println();
+        System.out.println(faultScheduler);
 
         // Initialize database connection pool
         dbConfig = new DBConfig("FaultInjectorConsumer");
@@ -97,7 +104,12 @@ public class FaultInjectorConsumer {
         }
 
         // F1: Crash before database commit
-        faultInjector.maybeInject(FaultType.F1_CRASH_BEFORE_DB_COMMIT);
+        // FaultScheduler: determines window + probability-based injection
+        // FaultInjector: executes the actual fault
+        boolean shouldInjectF1 = faultScheduler != null && faultScheduler.shouldInjectScheduled(FaultType.F1_CRASH_BEFORE_DB_COMMIT);
+        if (shouldInjectF1) {
+            faultInjector.maybeInject(FaultType.F1_CRASH_BEFORE_DB_COMMIT);
+        }
         
         String insertSql = String.format(
             "INSERT INTO %s (event_id, kafka_topic, kafka_partition, kafka_offset, payload) " +
@@ -126,7 +138,12 @@ public class FaultInjectorConsumer {
             totalMessagesWritten += records.size();
             
             // F2: Crash after database commit but before acknowledgment
-            faultInjector.maybeInject(FaultType.F2_CRASH_AFTER_DB_COMMIT_BEFORE_ACK);
+            // FaultScheduler: determines window + probability-based injection
+            // FaultInjector: executes the actual fault
+            boolean shouldInjectF2 = faultScheduler != null && faultScheduler.shouldInjectScheduled(FaultType.F2_CRASH_AFTER_DB_COMMIT_BEFORE_ACK);
+            if (shouldInjectF2) {
+                faultInjector.maybeInject(FaultType.F2_CRASH_AFTER_DB_COMMIT_BEFORE_ACK);
+            }
             
         } catch (SQLException e) {
             totalWriteErrors++;
@@ -153,7 +170,13 @@ public class FaultInjectorConsumer {
         }
 
         // Check if F3 partial writes should be applied to this batch
-        boolean applyPartialWrites = faultInjector.maybeInject(FaultType.F3_PARTIAL_BATCH_WRITES);
+        // FaultScheduler: determines window + probability-based injection
+        // FaultInjector: executes the actual fault (which is just marking batch as partial)
+        boolean shouldInjectF3 = faultScheduler != null && faultScheduler.shouldInjectScheduled(FaultType.F3_PARTIAL_BATCH_WRITES);
+        boolean applyPartialWrites = false;
+        if (shouldInjectF3) {
+            applyPartialWrites = faultInjector.maybeInject(FaultType.F3_PARTIAL_BATCH_WRITES);
+        }
         
         List<org.apache.kafka.clients.consumer.ConsumerRecord<String, String>> recordsToWrite = records;
         
@@ -298,10 +321,20 @@ public class FaultInjectorConsumer {
                 }
 
                 // F5: Slow sink backpressure
-                faultInjector.maybeInject(FaultType.F5_SLOW_SINK_BACKPRESSURE);
+                // FaultScheduler: determines window + probability-based injection
+                // FaultInjector: executes the actual fault (simulates latency)
+                boolean shouldInjectF5 = faultScheduler != null && faultScheduler.shouldInjectScheduled(FaultType.F5_SLOW_SINK_BACKPRESSURE);
+                if (shouldInjectF5) {
+                    faultInjector.maybeInject(FaultType.F5_SLOW_SINK_BACKPRESSURE);
+                }
                 
                 // F6: Network boundary fault
-                faultInjector.maybeInject(FaultType.F6_NETWORK_BOUNDARY_FAULT);
+                // FaultScheduler: determines window + probability-based injection
+                // FaultInjector: executes the actual fault (simulates network latency)
+                boolean shouldInjectF6 = faultScheduler != null && faultScheduler.shouldInjectScheduled(FaultType.F6_NETWORK_BOUNDARY_FAULT);
+                if (shouldInjectF6) {
+                    faultInjector.maybeInject(FaultType.F6_NETWORK_BOUNDARY_FAULT);
+                }
 
                 // Process batch with transactional guarantees
                 List<org.apache.kafka.clients.consumer.ConsumerRecord<String, String>> batch =
