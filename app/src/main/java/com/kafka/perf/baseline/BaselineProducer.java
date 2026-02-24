@@ -13,8 +13,12 @@ import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.errors.AuthorizationException;
 import org.apache.kafka.common.errors.OutOfOrderSequenceException;
 import org.apache.kafka.common.errors.ProducerFencedException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class BaselineProducer {
+
+    private static final Logger logger = LoggerFactory.getLogger(BaselineProducer.class);
 
     private static int WARMUP_RECORDS;
     private static int NUM_RECORDS;
@@ -37,7 +41,7 @@ public class BaselineProducer {
             }
             benchmarkProps.load(is);
         } catch (Exception e) {
-            System.err.println("Error loading benchmark.properties: " + e.getMessage());
+            logger.error("Error loading benchmark.properties: {}", e.getMessage());
             throw e;
         }
 
@@ -104,7 +108,7 @@ public class BaselineProducer {
             props.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG,
                     benchmarkProps.getProperty("transactional.id"));
             
-            System.out.println("Transaction mode: ENABLED");
+            logger.info("Transaction mode: ENABLED");
         } 
                         
 
@@ -123,32 +127,32 @@ public class BaselineProducer {
         String sampleFilePath = "message-sample-1kb.txt";
         try {
             payload = new String(Files.readAllBytes(Paths.get(sampleFilePath)));
-            System.out.printf("Loaded message sample from %s (%d bytes)%n", sampleFilePath, payload.length());
+            logger.info("Loaded message sample from {} ({} bytes)", sampleFilePath, payload.length());
         } catch (Exception e) {
-            System.err.println("Warning: Could not read " + sampleFilePath + ", generating payload instead");
+            logger.warn("Warning: Could not read {}, generating payload instead", sampleFilePath);
             StringBuilder sb = new StringBuilder(messageSizeBytes);
             while (sb.length() < messageSizeBytes) sb.append('v');
             payload = sb.substring(0, messageSizeBytes);
         }
 
-        System.out.println("==== Baseline Producer Test ====");
-        System.out.printf("Iterations: %d%n", NUM_ITERATIONS);
-        System.out.printf("Records per iteration: %d%n", NUM_RECORDS);
-        System.out.printf("Warmup records: %d%n", WARMUP_RECORDS);
-        System.out.printf("Target throughput: %s%n%n", targetThroughput == 0 ? "unlimited" : targetThroughput + " msg/sec");
+        logger.info("==== Baseline Producer Test ====");
+        logger.info("Iterations: {}", NUM_ITERATIONS);
+        logger.info("Records per iteration: {}", NUM_RECORDS);
+        logger.info("Warmup records: {}", WARMUP_RECORDS);
+        logger.info("Target throughput: {}", targetThroughput == 0 ? "unlimited" : targetThroughput + " msg/sec");
 
         for (int iter = 1; iter <= NUM_ITERATIONS; iter++) {
-            System.out.printf("==== Starting Iteration %d/%d ====%n", iter, NUM_ITERATIONS);
+            logger.info("==== Starting Iteration {}/{} ====", iter, NUM_ITERATIONS);
             
             runIteration(props, iter, payload);
             
             if (iter < NUM_ITERATIONS) {
-                System.out.printf("Cooling down for %dms...%n%n", INTER_TEST_DELAY_MS);
+                logger.info("Cooling down for {}ms...", INTER_TEST_DELAY_MS);
                 Thread.sleep(INTER_TEST_DELAY_MS);
             }
         }
         
-        System.out.println("\n==== Baseline Producer Test Completed ====");
+        logger.info("\n==== Baseline Producer Test Completed ====");
     }
 
     private static void runIteration(Properties props, int iterationNum, String payload) throws Exception {
@@ -161,7 +165,7 @@ public class BaselineProducer {
 
         // Warmup phase
         if (iterationNum == 1) {
-            System.out.printf("Warmup: sending %d records...%n", WARMUP_RECORDS);
+            logger.info("Warmup: sending {} records...", WARMUP_RECORDS);
             try {
                 // FIX: Conditional transaction begin in warmup
                 if (txnEnabled) producer.beginTransaction();
@@ -175,14 +179,14 @@ public class BaselineProducer {
                 
                 // FIX: Conditional transaction commit in warmup
                 if (txnEnabled) producer.commitTransaction();
-                System.out.println("Warmup completed.");
+                logger.info("Warmup completed.");
             } catch (KafkaException e) {
                 // FIX: Conditional transaction abort in warmup
                 if (txnEnabled) {
                     try {
                         producer.abortTransaction();
                     } catch (IllegalStateException | ProducerFencedException ex) {
-                        System.err.println("Could not abort transaction: " + ex.getMessage());
+                        logger.error("Could not abort transaction: {}", ex.getMessage());
                     }
                 }
                 throw e;
@@ -244,7 +248,7 @@ public class BaselineProducer {
                     producer.abortTransaction();
                 } catch (IllegalStateException | ProducerFencedException ex) {
                     // Transaction is already in a terminal state, just log and continue
-                    System.err.println("Could not abort transaction: " + ex.getMessage());
+                    logger.error("Could not abort transaction: {}", ex.getMessage());
                 }
             }
             throw e;
@@ -252,7 +256,7 @@ public class BaselineProducer {
             producer.close();
         }
 
-        System.out.println("Iteration " + iterationNum + " completed.");
+        logger.info("Iteration {} completed.", iterationNum);
     }
 
 
