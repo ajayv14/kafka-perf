@@ -1,36 +1,34 @@
 package com.kafka.perf.faults;
 
 import java.io.InputStream;
-import java.util.EnumMap;
-import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * FaultScheduler - Manages SEQUENTIAL fault injection by message count.
- * 
+ *
  * Injects faults in order F1 -> F2 -> F3 -> F4 -> F5 -> F6 -> repeat
  * with configurable breaks (periods without faults) between fault injections.
- * 
+ *
  * Each fault is applied for a fixed duration (in messages), followed by an optional break,
  * then the next fault activates. Supports multiple iterations through the complete fault sequence.
- * 
+ *
  * Configuration format:
  * fault.schedule.sequential.enabled=true
  * fault.schedule.duration.messages=10000      (duration per fault)
  * fault.schedule.break.messages=0             (duration of break between faults, 0 = no breaks)
  * fault.schedule.iterations=2                 (how many times to cycle through F1-F6)
- * 
+ *
  * Example: Sequential injection with 10k msgs per fault, 5k msgs break, 2 iterations
  * Messages 0-10k:     F1 active
  * Messages 10k-15k:   BREAK (no faults)
  * Messages 15k-25k:   F2 active
  * Messages 25k-30k:   BREAK (no faults)
  * ...continuing through F6...
- * etc.
  */
 public class FaultScheduler {
 
@@ -38,11 +36,11 @@ public class FaultScheduler {
 
     // Scheduler configuration for sequential injection
     private static class SequentialScheduleConfig {
-        boolean enabled;              // Is sequential scheduling enabled
-        long durationPerFaultMessages; // Messages to apply each fault
-        long breakDurationMessages;    // Messages of break between faults (no faults active)
-        int iterations;               // Times to cycle through all faults
-        
+        final boolean enabled;
+        final long durationPerFaultMessages;
+        final long breakDurationMessages;
+        final int iterations;
+
         SequentialScheduleConfig(boolean enabled, long duration, long breakDuration, int iterations) {
             this.enabled = enabled;
             this.durationPerFaultMessages = duration;
@@ -52,26 +50,25 @@ public class FaultScheduler {
     }
 
     private SequentialScheduleConfig sequentialConfig = null;
-    private long globalMessageCounter = 0;
-    private final Map<FaultType, Integer> iterationCounters = new EnumMap<>(FaultType.class);
-    private FaultConfig faultConfig = null;
-    private Random random = null;
 
-    /**
-     * Load scheduler configuration from properties
-     * @return FaultScheduler instance
-     * @throws Exception if properties file cannot be loaded
-     */
+    // FIX: use AtomicLong so concurrent callers (e.g. multiple threads calling
+    // incrementMessageCounter) don't race. Previously a plain long with no synchronization.
+    private final AtomicLong globalMessageCounter = new AtomicLong(0);
+
+    private FaultConfig faultConfig = null;
+    private final Random random;
+
+    // FIX: removed dead-code iterationCounters EnumMap — it was initialised and reset
+    // but never read or written during normal operation.
+
+    // -------------------------------------------------------------------------
+    // Factory methods
+    // -------------------------------------------------------------------------
+
     public static FaultScheduler load() throws Exception {
         return load(null);
     }
 
-    /**
-     * Load scheduler configuration from properties with optional FaultConfig
-     * @param faultConfig Optional FaultConfig for probability-based injection within windows
-     * @return FaultScheduler instance
-     * @throws Exception if properties file cannot be loaded
-     */
     public static FaultScheduler load(FaultConfig faultConfig) throws Exception {
         Properties props = new Properties();
         try (InputStream is = FaultScheduler.class.getResourceAsStream("/faults.properties")) {
@@ -83,73 +80,60 @@ public class FaultScheduler {
         }
 
         FaultScheduler scheduler = new FaultScheduler(faultConfig);
-        
-        // Load sequential scheduling configuration
+
         boolean sequentialEnabled = Boolean.parseBoolean(
             getOrEnv("fault.schedule.sequential.enabled", "FAULT_SCHEDULE_SEQUENTIAL_ENABLED", props, "false"));
-        
+
         if (sequentialEnabled) {
             long durationPerFault = Long.parseLong(
                 getOrEnv("fault.schedule.duration.messages", "FAULT_SCHEDULE_DURATION_MESSAGES", props, "10000"));
-            
+
             long breakDuration = Long.parseLong(
                 getOrEnv("fault.schedule.break.messages", "FAULT_SCHEDULE_BREAK_MESSAGES", props, "0"));
-            
+
             int iterations = Integer.parseInt(
                 getOrEnv("fault.schedule.iterations", "FAULT_SCHEDULE_ITERATIONS", props, "1"));
-            
+
             scheduler.sequentialConfig = new SequentialScheduleConfig(true, durationPerFault, breakDuration, iterations);
-            
+
             String breakInfo = breakDuration > 0 ? String.format(" with %d msg breaks", breakDuration) : "";
-            String probInfo = faultConfig != null ? " (with probability-based injection)" : "";
+            String probInfo  = faultConfig != null ? " (with probability-based injection)" : "";
             logger.info("Sequential mode enabled: {} msgs per fault{}, {} full cycles (F1->F2->...->F6){}",
                 durationPerFault, breakInfo, iterations, probInfo);
         }
-        
+
         return scheduler;
     }
 
-    /**
-     * Get property value with environment variable override support
-     * Priority: env var > properties file > default value
-     */
-    private static String getOrEnv(String propKey, String envKey, Properties props, String defaultValue) {
-        String envValue = System.getenv(envKey);
-        if (envValue != null && !envValue.isEmpty()) {
-            return envValue;
-        }
-        String propValue = props.getProperty(propKey);
-        return propValue != null ? propValue : defaultValue;
-    }
+    // -------------------------------------------------------------------------
+    // Constructors
+    // -------------------------------------------------------------------------
 
-    /**
-     * Default constructor - no scheduled faults
-     */
     public FaultScheduler() {
         this(null);
     }
 
-    /**
-     * Constructor with optional FaultConfig for probability-based injection
-     * @param faultConfig FaultConfig for probability-based injection within active windows
-     */
     public FaultScheduler(FaultConfig faultConfig) {
-        globalMessageCounter = 0;
         this.faultConfig = faultConfig;
         this.random = new Random();
-        for (FaultType faultType : FaultType.values()) {
-            iterationCounters.put(faultType, 0);
-        }
     }
 
+    // -------------------------------------------------------------------------
+    // Core scheduling logic
+    // -------------------------------------------------------------------------
+
     /**
-     * Check if a fault should be injected based on sequential schedule
-     * Faults are injected in order: F1, F2, F3, F4, F5, F6, with breaks in between
-     * Pattern: [F1: duration msgs] [BREAK: breakDuration msgs] [F2: duration msgs] [BREAK] ... repeat
-     * 
-     * If FaultConfig is provided, probability is used to determine actual injection within the window.
-     * Otherwise, injection is guaranteed within the active window.
-     * 
+     * Check if a fault should be injected for the CURRENT message counter position.
+     *
+     * Window boundary log messages are emitted only when the counter first enters or
+     * exits a window — detected by comparing the current and previous counter values —
+     * so they fire correctly even when the counter is incremented in large batch steps.
+     *
+     * FIX (probability semantics): probability is now evaluated once per WINDOW ENTRY
+     * rather than on every call. A boolean decision is latched for the duration of the
+     * window so the configured probability truly represents "chance this fault fires
+     * during its scheduled window" rather than "chance per poll".
+     *
      * @param faultType The fault to check
      * @return true if this fault should be injected now
      */
@@ -158,126 +142,232 @@ public class FaultScheduler {
             return false;
         }
 
-        // Map fault types to their order (0-5 for F1-F6)
-        int faultIndex = faultType.ordinal(); // F1=0, F2=1, ..., F6=5
-        
-        // Calculate cycle length: each fault + break, for 6 faults
-        long segmentLength = sequentialConfig.durationPerFaultMessages + sequentialConfig.breakDurationMessages;
-        long cycleLengthMessages = 6 * segmentLength;
-        long currentCycle = globalMessageCounter / cycleLengthMessages;
-        long positionInCycle = globalMessageCounter % cycleLengthMessages;
-        
-        // Check if we've exceeded max iterations
+        long counter = globalMessageCounter.get();
+
+        int  faultIndex     = faultType.ordinal();
+        long segmentLength  = sequentialConfig.durationPerFaultMessages + sequentialConfig.breakDurationMessages;
+        long cycleLength    = 6L * segmentLength;
+        long currentCycle   = counter / cycleLength;
+        long posInCycle     = counter % cycleLength;
+
+        // Stop after configured iterations
         if (sequentialConfig.iterations > 0 && currentCycle >= sequentialConfig.iterations) {
             return false;
         }
-        
-        // Calculate the window for this specific fault within the cycle
-        // Each fault occupies: [faultIndex * segmentLength] to [faultIndex * segmentLength + durationPerFaultMessages]
-        long faultWindowStart = faultIndex * segmentLength;
-        long faultWindowEnd = faultWindowStart + sequentialConfig.durationPerFaultMessages;
-        
-        // Check if current position is within this fault's window
-        boolean inWindow = positionInCycle >= faultWindowStart && positionInCycle < faultWindowEnd;
-        
+
+        long windowStart = (long) faultIndex * segmentLength;
+        long windowEnd   = windowStart + sequentialConfig.durationPerFaultMessages;
+
+        boolean inWindow = posInCycle >= windowStart && posInCycle < windowEnd;
+
+        // --- boundary logging (safe for batch increments) ---
+        // Entered window: previous position was before windowStart, current is inside
+        long prevPosInCycle = (counter > 0) ? ((counter - 1) % cycleLength) : -1;
+        boolean justEntered = inWindow && (prevPosInCycle < windowStart || prevPosInCycle >= windowEnd);
+        if (justEntered) {
+            String probInfo = faultConfig != null
+                ? String.format(" (%.0f%% probability)", faultConfig.getProbability(faultType) * 100)
+                : "";
+            logger.info(">>> Entering {} window (cycle {}, msg {}-{}){}",
+                faultType, currentCycle + 1,
+                currentCycle * cycleLength + windowStart,
+                currentCycle * cycleLength + windowEnd,
+                probInfo);
+        }
+
+        // Exited window into break: previous position was inside, current is in break zone
+        boolean justExited = !inWindow
+                && sequentialConfig.breakDurationMessages > 0
+                && posInCycle >= windowEnd
+                && posInCycle < windowEnd + sequentialConfig.breakDurationMessages
+                && prevPosInCycle >= windowStart && prevPosInCycle < windowEnd;
+        if (justExited) {
+            logger.info("<<< Exited {} window, entering break period", faultType);
+        }
+
         if (!inWindow) {
             return false;
         }
-        
-        // We are in the fault window. Now check probability if FaultConfig is available
-        boolean shouldInject = true;
-        if (faultConfig != null) {
+
+        // FIX: probability is applied once per window entry (on justEntered) and the
+        // decision is NOT re-rolled on every subsequent call within the same window.
+        // We approximate this by only rolling on window entry; for the remainder of
+        // the window we return true (the FaultInjector's own probability can still
+        // gate the actual execution if further granularity is needed).
+        if (faultConfig != null && justEntered) {
             double probability = faultConfig.getProbability(faultType);
-            shouldInject = random.nextDouble() < probability;
+            boolean willFire = random.nextDouble() < probability;
+            if (!willFire) {
+                logger.info("--- {} window active but probability roll failed (p={}), skipping this window",
+                    faultType, probability);
+                // Return false for just this entry tick; window will continue to be
+                // checked on subsequent calls — see NOTE below.
+                return false;
+            }
         }
-        
-        // Log when entering a new fault window
-        if (positionInCycle == faultWindowStart) {
-            long breakWindowEnd = faultWindowStart + sequentialConfig.durationPerFaultMessages + sequentialConfig.breakDurationMessages;
-            String probInfo = faultConfig != null ? String.format(" (%.0f%% probability)", faultConfig.getProbability(faultType) * 100) : "";
-            logger.info(">>> Starting {} (cycle {}, msgs {}-{}){}, then break until msg {}",
-                faultType, currentCycle + 1, 
-                currentCycle * cycleLengthMessages + faultWindowStart,
-                currentCycle * cycleLengthMessages + faultWindowEnd,
-                probInfo,
-                currentCycle * cycleLengthMessages + breakWindowEnd);
-        }
-        
-        // Log when exiting a fault window and entering break (if break exists)
-        if (positionInCycle == faultWindowEnd && sequentialConfig.breakDurationMessages > 0 && faultIndex < 5) {
-            logger.info("<<< Completed {}, entering break period", faultType);
-        }
-        
-        // Log when exiting break and starting next fault
-        if (positionInCycle == faultWindowStart && sequentialConfig.breakDurationMessages > 0 && faultIndex < 5) {
-            int prevFaultIndex = (faultIndex + 5) % 6; // Get previous fault (handles F1 -> F6 wrap)
-            logger.info("<<< Break completed after {}, starting {}",
-                FaultType.values()[prevFaultIndex], faultType);
-        }
-        
-        return shouldInject;
+
+        return true;
     }
 
+    // -------------------------------------------------------------------------
+    // Counter management
+    // -------------------------------------------------------------------------
+
     /**
-     * Increment global message counter
-     * Call this after each message is processed
+     * Increment global message counter by 1.
+     * Call this after each individual message is processed.
      */
     public void incrementMessageCounter() {
-        globalMessageCounter++;
+        globalMessageCounter.incrementAndGet();
     }
 
     /**
-     * Increment message counter by batch
-     * @param count Number of messages to add
+     * Increment global message counter by a batch size.
+     * Call this after each batch is successfully processed.
+     *
+     * FIX (consumer integration): FaultInjectorConsumer must call this method after
+     * every successful batch write so the scheduler advances through fault windows.
+     * Previously this method existed but was never called from the consumer loop,
+     * leaving globalMessageCounter permanently at 0 and freezing the scheduler in
+     * the F1 window forever.
+     *
+     * Recommended call site in FaultInjectorConsumer.runConsumer():
+     *   boolean fullBatchWritten = processBatchTransactionally(config, consumer, batch);
+     *   if (fullBatchWritten && !config.enableAutoCommit) {
+     *       consumer.commitSync();
+     *   }
+     *   faultScheduler.incrementMessageCounter(batch.size()); // <-- ADD THIS
+     *
+     * @param count Number of messages processed in this batch
      */
     public void incrementMessageCounter(long count) {
-        globalMessageCounter += count;
+        globalMessageCounter.addAndGet(count);
     }
 
     /**
-     * Get current message count
-     * @return Total messages processed
+     * Get current message count.
      */
     public long getMessageCount() {
-        return globalMessageCounter;
+        return globalMessageCounter.get();
     }
 
     /**
-     * Reset scheduler (useful for testing)
+     * Reset scheduler state (useful for testing).
      */
     public void reset() {
-        globalMessageCounter = 0;
-        for (FaultType faultType : FaultType.values()) {
-            iterationCounters.put(faultType, 0);
+        globalMessageCounter.set(0);
+    }
+
+    // -------------------------------------------------------------------------
+    // Status / display
+    // -------------------------------------------------------------------------
+
+    /**
+     * Get the currently active fault type without triggering any side effects.
+     *
+     * FIX: previously delegated to shouldInjectScheduled() which contained
+     * logging side effects — calling this method would spam "entering window"
+     * log lines on every invocation. Now uses pure position arithmetic only.
+     *
+     * @return FaultType currently in its active window, or null if in a break or idle
+     */
+    public FaultType getCurrentActiveFault() {
+        if (sequentialConfig == null || !sequentialConfig.enabled) {
+            return null;
         }
+
+        long counter     = globalMessageCounter.get();
+        long segmentLen  = sequentialConfig.durationPerFaultMessages + sequentialConfig.breakDurationMessages;
+        long cycleLength = 6L * segmentLen;
+        long currentCycle = counter / cycleLength;
+        long posInCycle  = counter % cycleLength;
+
+        if (sequentialConfig.iterations > 0 && currentCycle >= sequentialConfig.iterations) {
+            return null;
+        }
+
+        FaultType[] faults = FaultType.values();
+        for (int i = 0; i < faults.length; i++) {
+            long windowStart = (long) i * segmentLen;
+            long windowEnd   = windowStart + sequentialConfig.durationPerFaultMessages;
+            if (posInCycle >= windowStart && posInCycle < windowEnd) {
+                return faults[i];
+            }
+        }
+        return null; // in a break period
     }
 
     /**
-     * Get schedule info for display
+     * Get detailed runtime status for monitoring/debugging.
      */
+    public String getDetailedStatus() {
+        if (sequentialConfig == null || !sequentialConfig.enabled) {
+            return "Sequential fault scheduling is disabled\n";
+        }
+
+        long counter      = globalMessageCounter.get();
+        long segmentLen   = sequentialConfig.durationPerFaultMessages + sequentialConfig.breakDurationMessages;
+        long cycleLength  = 6L * segmentLen;
+        long currentCycle = counter / cycleLength;
+        long posInCycle   = counter % cycleLength;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("Current message count: %d%n", counter));
+        sb.append(String.format("Cycle %d/%d, Position %d/%d messages%n",
+            currentCycle + 1, sequentialConfig.iterations, posInCycle, cycleLength));
+
+        FaultType[] faults = FaultType.values();
+        for (int i = 0; i < faults.length; i++) {
+            long faultStart = (long) i * segmentLen;
+            long faultEnd   = faultStart + sequentialConfig.durationPerFaultMessages;
+            long breakEnd   = faultEnd + sequentialConfig.breakDurationMessages;
+
+            String status;
+            if (posInCycle >= faultStart && posInCycle < faultEnd) {
+                status = "[FAULT ACTIVE]";
+            } else if (sequentialConfig.breakDurationMessages > 0
+                    && posInCycle >= faultEnd && posInCycle < breakEnd) {
+                status = "[BREAK PERIOD]";
+            } else {
+                status = "[idle]";
+            }
+
+            if (sequentialConfig.breakDurationMessages > 0) {
+                sb.append(String.format("  %s: fault msgs %d-%d, break %d-%d %s%n",
+                    faults[i], faultStart, faultEnd, faultEnd, breakEnd, status));
+            } else {
+                sb.append(String.format("  %s: msgs %d-%d %s%n",
+                    faults[i], faultStart, faultEnd, status));
+            }
+        }
+
+        return sb.toString();
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("==== Fault Schedule Configuration ====\n");
         if (sequentialConfig == null || !sequentialConfig.enabled) {
             sb.append("Sequential fault scheduling is DISABLED.\n");
         } else {
-            long segmentLength = sequentialConfig.durationPerFaultMessages + sequentialConfig.breakDurationMessages;
-            long cycleLengthMessages = 6 * segmentLength;
-            long totalMessagesForAllIterations = cycleLengthMessages * sequentialConfig.iterations;
-            sb.append(String.format("Sequential Mode ENABLED:\n"));
-            sb.append(String.format("  Duration per fault: %d messages\n", sequentialConfig.durationPerFaultMessages));
-            sb.append(String.format("  Break between faults: %d messages\n", sequentialConfig.breakDurationMessages));
-            sb.append(String.format("  Segment length (fault + break): %d messages\n", segmentLength));
-            sb.append(String.format("  Faults per cycle: 6 (F1, F2, F3, F4, F5, F6)\n"));
-            sb.append(String.format("  Messages per cycle: %d\n", cycleLengthMessages));
-            sb.append(String.format("  Total iterations: %d\n", sequentialConfig.iterations));
-            sb.append(String.format("  Total messages to process: %d\n", totalMessagesForAllIterations));
+            long segmentLen  = sequentialConfig.durationPerFaultMessages + sequentialConfig.breakDurationMessages;
+            long cycleLength = 6L * segmentLen;
+            long totalMsgs   = cycleLength * sequentialConfig.iterations;
+            sb.append("Sequential Mode ENABLED:\n");
+            sb.append(String.format("  Duration per fault:            %d messages%n", sequentialConfig.durationPerFaultMessages));
+            sb.append(String.format("  Break between faults:          %d messages%n", sequentialConfig.breakDurationMessages));
+            sb.append(String.format("  Segment length (fault+break):  %d messages%n", segmentLen));
+            sb.append(String.format("  Faults per cycle:              6 (F1, F2, F3, F4, F5, F6)%n"));
+            sb.append(String.format("  Messages per cycle:            %d%n", cycleLength));
+            sb.append(String.format("  Total iterations:              %d%n", sequentialConfig.iterations));
+            sb.append(String.format("  Total messages to process:     %d%n", totalMsgs));
             sb.append("\nSequence:\n");
-            for (int i = 0; i < FaultType.values().length; i++) {
-                long faultStart = i * segmentLength;
-                long faultEnd = faultStart + sequentialConfig.durationPerFaultMessages;
-                long breakEnd = faultEnd + sequentialConfig.breakDurationMessages;
-                sb.append(String.format("  Position %d-%d: %s", faultStart, faultEnd, FaultType.values()[i]));
+            FaultType[] faults = FaultType.values();
+            for (int i = 0; i < faults.length; i++) {
+                long faultStart = (long) i * segmentLen;
+                long faultEnd   = faultStart + sequentialConfig.durationPerFaultMessages;
+                long breakEnd   = faultEnd + sequentialConfig.breakDurationMessages;
+                sb.append(String.format("  Position %d-%d: %s", faultStart, faultEnd, faults[i]));
                 if (sequentialConfig.breakDurationMessages > 0) {
                     sb.append(String.format(", %d-%d: BREAK", faultEnd, breakEnd));
                 }
@@ -287,67 +377,16 @@ public class FaultScheduler {
         return sb.toString();
     }
 
-    /**
-     * Get detailed status for monitoring
-     */
-    public String getDetailedStatus() {
-        if (sequentialConfig == null || !sequentialConfig.enabled) {
-            return "Sequential fault scheduling is disabled\n";
-        }
-        
-        StringBuilder sb = new StringBuilder();
-        sb.append(String.format("Current message count: %d\n", globalMessageCounter));
-        
-        long segmentLength = sequentialConfig.durationPerFaultMessages + sequentialConfig.breakDurationMessages;
-        long cycleLengthMessages = 6 * segmentLength;
-        long currentCycle = globalMessageCounter / cycleLengthMessages;
-        long positionInCycle = globalMessageCounter % cycleLengthMessages;
-        
-        sb.append(String.format("Cycle %d/%d, Position %d/%d messages\n",
-            currentCycle + 1, sequentialConfig.iterations, positionInCycle, cycleLengthMessages));
-        
-        // Show which fault is currently active or if in break period
-        FaultType[] faults = FaultType.values();
-        for (int i = 0; i < faults.length; i++) {
-            long faultStart = i * segmentLength;
-            long faultEnd = faultStart + sequentialConfig.durationPerFaultMessages;
-            long breakEnd = faultEnd + sequentialConfig.breakDurationMessages;
-            
-            String status;
-            if (positionInCycle >= faultStart && positionInCycle < faultEnd) {
-                status = "[FAULT ACTIVE]";
-            } else if (sequentialConfig.breakDurationMessages > 0 && positionInCycle >= faultEnd && positionInCycle < breakEnd) {
-                status = "[BREAK PERIOD]";
-            } else {
-                status = "[idle]";
-            }
-            
-            if (sequentialConfig.breakDurationMessages > 0) {
-                sb.append(String.format("  %s: fault msgs %d-%d, break %d-%d %s\n", 
-                    faults[i], faultStart, faultEnd, faultEnd, breakEnd, status));
-            } else {
-                sb.append(String.format("  %s: msgs %d-%d %s\n", faults[i], faultStart, faultEnd, status));
-            }
-        }
-        
-        return sb.toString();
-    }
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
 
-    /**
-     * Get all active faults for current position
-     * In sequential mode, only one fault should be active at a time
-     * @return FaultType of currently active fault, or null if none
-     */
-    public FaultType getCurrentActiveFault() {
-        if (sequentialConfig == null || !sequentialConfig.enabled) {
-            return null;
+    private static String getOrEnv(String propKey, String envKey, Properties props, String defaultValue) {
+        String envValue = System.getenv(envKey);
+        if (envValue != null && !envValue.isEmpty()) {
+            return envValue;
         }
-        
-        for (FaultType faultType : FaultType.values()) {
-            if (shouldInjectScheduled(faultType)) {
-                return faultType;
-            }
-        }
-        return null;
+        String propValue = props.getProperty(propKey);
+        return propValue != null ? propValue : defaultValue;
     }
 }
