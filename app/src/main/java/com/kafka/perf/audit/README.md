@@ -1,3 +1,10 @@
+
+Event                      Pointcut
+Batch read from Kafka     After consumer.poll() returns non-empty records
+Offset committed          After consumer.commitSync() returns@After
+
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Changes required in FaultInjectorConsumer.java  (2 locations only)
 // ─────────────────────────────────────────────────────────────────────────────
