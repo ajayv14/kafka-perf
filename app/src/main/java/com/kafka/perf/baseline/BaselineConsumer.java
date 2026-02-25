@@ -10,6 +10,8 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.kafka.perf.configs.KafkaConsumerConfig;
+
 /**
  * Baseline Kafka Consumer - Simple consumer without performance measurement overhead.
  * Configuration is centralized in KafkaConsumerConfig.

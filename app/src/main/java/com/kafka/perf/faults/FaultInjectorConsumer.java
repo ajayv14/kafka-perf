@@ -1,4 +1,4 @@
-package com.kafka.perf.baseline;
+package com.kafka.perf.faults;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -16,10 +16,9 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.kafka.perf.faults.FaultConfig;
-import com.kafka.perf.faults.FaultInjector;
-import com.kafka.perf.faults.FaultScheduler;
-import com.kafka.perf.faults.FaultType;
+import com.kafka.perf.configs.DBConfig;
+import com.kafka.perf.configs.KafkaConsumerConfig;
+
 
 /**
  * FaultInjectorConsumer - PostgreSQL Sink Consumer with fault injection capabilities.
@@ -83,11 +82,15 @@ public class FaultInjectorConsumer {
             // Verify database connectivity before starting consumer
             dbConfig.verifyDatabaseConnection(config);
 
+            // AuditProducer.init(config.bootstrapServers, "audit-topic");
+
+
             // Run consumer with fault injection
             runConsumer(config);
         } finally {
             // Cleanup: close connection pool
             dbConfig.close();
+            //AuditProducer.shutdown(); 
         }
     }
 
@@ -296,6 +299,16 @@ public class FaultInjectorConsumer {
         props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG,       config.maxPollIntervalMs);
 
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
+       
+       
+       /* KafkaConsumer<String, String> consumer =
+        new AuditableConsumer<>(
+            new KafkaConsumer<>(props),   // real consumer passed as delegate
+            config.topic,
+            config.groupId
+        );*/
+       
+       
         consumer.subscribe(Collections.singletonList(config.topic));
 
         logger.info("Started consuming from topic: {}", config.topic);

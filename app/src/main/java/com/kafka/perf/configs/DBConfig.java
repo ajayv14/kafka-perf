@@ -1,4 +1,4 @@
-package com.kafka.perf.baseline;
+package com.kafka.perf.configs;
 
 import java.sql.Connection;
 import java.sql.SQLException;

@@ -14,6 +14,9 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.kafka.perf.configs.DBConfig;
+import com.kafka.perf.configs.KafkaConsumerConfig;
+
 /**
  * PostgreSQL Sink Consumer - Identical to BaselineConsumer but writes to PostgreSQL.
  * 
