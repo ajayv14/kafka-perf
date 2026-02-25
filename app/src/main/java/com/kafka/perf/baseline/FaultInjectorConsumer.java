@@ -83,11 +83,15 @@ public class FaultInjectorConsumer {
             // Verify database connectivity before starting consumer
             dbConfig.verifyDatabaseConnection(config);
 
+            // AuditProducer.init(config.bootstrapServers, "audit-topic");
+
+
             // Run consumer with fault injection
             runConsumer(config);
         } finally {
             // Cleanup: close connection pool
             dbConfig.close();
+            //AuditProducer.shutdown(); 
         }
     }
 
@@ -296,6 +300,16 @@ public class FaultInjectorConsumer {
         props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG,       config.maxPollIntervalMs);
 
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
+       
+       
+       /* KafkaConsumer<String, String> consumer =
+        new AuditableConsumer<>(
+            new KafkaConsumer<>(props),   // real consumer passed as delegate
+            config.topic,
+            config.groupId
+        );*/
+       
+       
         consumer.subscribe(Collections.singletonList(config.topic));
 
         logger.info("Started consuming from topic: {}", config.topic);
