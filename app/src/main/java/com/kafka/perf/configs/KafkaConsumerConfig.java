@@ -1,4 +1,4 @@
-package com.kafka.perf.baseline;
+package com.kafka.perf.configs;
 
 import java.io.InputStream;
 import java.util.Properties;

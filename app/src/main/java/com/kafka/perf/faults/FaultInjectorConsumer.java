@@ -1,4 +1,4 @@
-package com.kafka.perf.baseline;
+package com.kafka.perf.faults;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -16,10 +16,9 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.kafka.perf.faults.FaultConfig;
-import com.kafka.perf.faults.FaultInjector;
-import com.kafka.perf.faults.FaultScheduler;
-import com.kafka.perf.faults.FaultType;
+import com.kafka.perf.configs.DBConfig;
+import com.kafka.perf.configs.KafkaConsumerConfig;
+
 
 /**
  * FaultInjectorConsumer - PostgreSQL Sink Consumer with fault injection capabilities.
