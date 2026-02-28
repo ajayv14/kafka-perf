@@ -236,11 +236,19 @@ public class AuditableConsumer<K, V> extends KafkaConsumer<K, V> {
 
     @Override
     public void close() {
+        if (delegate == null) {
+            super.close();
+            return;
+        }
         delegate.close();
     }
 
     @Override
     public void close(Duration timeout) {
+        if (delegate == null) {
+            super.close(timeout);
+            return;
+        }
         delegate.close(timeout);
     }
 
