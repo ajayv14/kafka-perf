@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Script to create Kafka topic with specific configuration.
-Creates 'eos-topic' with 12 partitions and replication factor of 3.
+Script to create Kafka topics with specific configuration.
+Creates 'eos-topic' with 12 partitions and 'audit-topic' with 3 partitions.
+Both with replication factor of 3 and same EOS guarantees.
 """
 
 import sys
@@ -9,20 +10,30 @@ from kafka.admin import KafkaAdminClient, NewTopic
 from kafka.errors import TopicAlreadyExistsError
 
 
-def create_eos_topic():
-    """Create the eos-topic with configured settings."""
+def create_topics():
+    """Create the eos-topic and audit-topic with configured settings."""
     
     # Configuration
     bootstrap_servers = 'localhost:9092'
-    topic_name = 'eos-topic'
-    num_partitions = 12
     replication_factor = 3
     
-    # Topic configurations
+    # Topic configurations (EOS guarantees)
     topic_config = {
         'min.insync.replicas': '2',
         'retention.ms': '3600000'
     }
+    
+    # Define topics
+    topics = [
+        {
+            'name': 'eos-topic',
+            'num_partitions': 12
+        },
+        {
+            'name': 'audit-topic',
+            'num_partitions': 3
+        }
+    ]
     
     try:
         # Create admin client
@@ -31,18 +42,21 @@ def create_eos_topic():
             client_id='topic-creator'
         )
         
-        # Create NewTopic object
-        new_topic = NewTopic(
-            name=topic_name,
-            num_partitions=num_partitions,
-            replication_factor=replication_factor,
-            topic_configs=topic_config
-        )
+        # Create NewTopic objects
+        new_topics = []
+        for topic in topics:
+            new_topic = NewTopic(
+                name=topic['name'],
+                num_partitions=topic['num_partitions'],
+                replication_factor=replication_factor,
+                topic_configs=topic_config
+            )
+            new_topics.append(new_topic)
         
-        # Create the topic
-        fs = admin_client.create_topics(new_topics=[new_topic], validate_only=False)
+        # Create the topics
+        fs = admin_client.create_topics(new_topics=new_topics, validate_only=False)
         
-        # Wait for the topic to be created
+        # Wait for the topics to be created
         for topic, future in fs.items():
             try:
                 future.result()  # The result itself is None
@@ -64,5 +78,5 @@ def create_eos_topic():
 
 
 if __name__ == '__main__':
-    success = create_eos_topic()
+    success = create_topics()
     sys.exit(0 if success else 1)

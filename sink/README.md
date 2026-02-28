@@ -10,16 +10,7 @@ CREATE TABLE sink_events (
     created_at TIMESTAMP DEFAULT now()
 );
 
-CREATE TABLE sink_writes_log (
-    log_id SERIAL PRIMARY KEY,
-    event_id VARCHAR(64),
-    kafka_offset BIGINT,
-    phase TEXT,
-    ts TIMESTAMP DEFAULT now()
-);
-
-
-
+// Do not alter when kafka transaction is disabled.
 ALTER TABLE sink_events 
 ADD CONSTRAINT unique_kafka_offset 
 UNIQUE (kafka_topic, kafka_partition, kafka_offset);
