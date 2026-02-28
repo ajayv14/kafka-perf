@@ -16,9 +16,77 @@ groups:
       - record: kafka_cluster_bytes_out_kb_per_sec
         expr: sum(rate(kafka_broker_bytes_out_total[5m])) / 1024
       
-      # Message throughput (messages/sec)
-      - record: kafka_broker_messages_in_per_sec
-        expr: sum by(instance) (rate(kafka_broker_messages_in_total[5m]))
+      # Cluster-wide network throughput in bytes/sec (combined in + out)
+      - record: kafka_cluster_throughput_bytes_per_sec
+        expr: sum(rate(kafka_broker_bytes_in_total[5m])) + sum(rate(kafka_broker_bytes_out_total[5m]))
       
-      - record: kafka_cluster_messages_in_per_sec
-        expr: sum(rate(kafka_broker_messages_in_total[5m]))
+
+  - name: kafka_broker_resources
+    interval: 30s
+    rules:
+      # Broker CPU metrics from container metrics (primary source)
+      - record: kafka_broker_cpu_usage_percent
+        expr: |-
+          sum by(instance) (
+            label_replace(
+              rate(container_cpu_usage_seconds_total{name=~"kafka-[0-9]+"}[5m]) * 100,
+              "instance", "$1", "name", "(kafka-[0-9]+)"
+            )
+          )
+      
+      - record: kafka_cluster_cpu_usage_percent
+        expr: avg(kafka_broker_cpu_usage_percent)
+      
+      # Broker memory metrics in MB
+      - record: kafka_broker_heap_memory_mb
+        expr: jvm_heap_used_bytes / 1024 / 1024
+  
+      
+      - record: kafka_broker_heap_memory_usage_percent
+        expr: (jvm_heap_used_bytes / jvm_heap_max_bytes) * 100
+      
+      - record: kafka_broker_non_heap_memory_mb
+        expr: jvm_non_heap_used_bytes / 1024 / 1024
+      
+      # Cluster average memory usage
+      - record: kafka_cluster_heap_memory_usage_percent
+        expr: avg(kafka_broker_heap_memory_usage_percent)
+      
+      # Heap memory max in MB
+      - record: kafka_broker_heap_memory_max_mb
+        expr: jvm_heap_max_bytes / 1024 / 1024
+
+  - name: kafka_container_resources
+    interval: 30s
+    rules:
+      # Container CPU usage percentage - kafka-1
+      - record: kafka_broker_cpu_kafka1
+        expr: rate(container_cpu_usage_seconds_total{id="/docker/426e99fa0118ce3822592b9fdb62123ff3a352c35eddf5f871d6429152c1858e"}[5m]) * 100
+      
+      # Container CPU usage percentage - kafka-2
+      - record: kafka_broker_cpu_kafka2
+        expr: rate(container_cpu_usage_seconds_total{id="/docker/27ae4f58a29a886a97457706a7c2f72a0e3bc684a0f9dfe86e88bf25713a579f"}[5m]) * 100
+      
+      # Container CPU usage percentage - kafka-3
+      - record: kafka_broker_cpu_kafka3
+        expr: rate(container_cpu_usage_seconds_total{id="/docker/d31d9ae9ee847c712b6764b96866a7536b58dfa5fa2061be907d74ca927a07e0"}[5m]) * 100
+      
+      # Cluster average CPU from containers
+      - record: kafka_cluster_docker_cpu_percent
+        expr: (avg(kafka_broker_cpu_kafka1) + avg(kafka_broker_cpu_kafka2) + avg(kafka_broker_cpu_kafka3)) / 3
+      
+      # Container memory usage in GB - kafka-1
+      - record: kafka_broker_memory_kafka1_gb
+        expr: max(container_memory_usage_bytes{id="/docker/426e99fa0118ce3822592b9fdb62123ff3a352c35eddf5f871d6429152c1858e"}) / 1024 / 1024 / 1024
+      
+      # Container memory usage in GB - kafka-2
+      - record: kafka_broker_memory_kafka2_gb
+        expr: max(container_memory_usage_bytes{id="/docker/27ae4f58a29a886a97457706a7c2f72a0e3bc684a0f9dfe86e88bf25713a579f"}) / 1024 / 1024 / 1024
+      
+      # Container memory usage in GB - kafka-3
+      - record: kafka_broker_memory_kafka3_gb
+        expr: max(container_memory_usage_bytes{id="/docker/d31d9ae9ee847c712b6764b96866a7536b58dfa5fa2061be907d74ca927a07e0"}) / 1024 / 1024 / 1024
+      
+      # Cluster total memory in GB
+      - record: kafka_cluster_memory_total_gb
+        expr: avg(kafka_broker_memory_kafka1_gb) + avg(kafka_broker_memory_kafka2_gb) + avg(kafka_broker_memory_kafka3_gb)

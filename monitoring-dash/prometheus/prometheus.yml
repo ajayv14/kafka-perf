@@ -24,13 +24,9 @@ scrape_configs:
     static_configs:
       - targets: ['cadvisor:8080']
     metric_relabel_configs:
-      # Keep only CPU-related metrics
+      # Keep only CPU and memory metrics
       - source_labels: [__name__]
-        regex: '(container_cpu_.*|container_memory_.*|container_spec_.*)'
-        action: keep
-      # Keep only Kafka containers
-      - source_labels: [name]
-        regex: '(kafka-1|kafka-2|kafka-3)'
+        regex: '(container_cpu_usage_seconds_total|container_memory_usage_bytes|container_spec_memory_limit_bytes)'
         action: keep
 
   # Node Exporter - Host system metrics from Kafka machine

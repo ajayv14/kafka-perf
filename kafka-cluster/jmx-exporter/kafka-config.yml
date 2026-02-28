@@ -55,7 +55,7 @@ rules:
   help: "Indicates if this broker is the active controller"
 
 # =====================================================
-# JVM HEAP (Basic only)
+# JVM HEAP & MEMORY (Basic only)
 # =====================================================
 
 - pattern: 'java.lang<type=Memory><HeapMemoryUsage>used'
@@ -63,10 +63,39 @@ rules:
   type: GAUGE
   help: "JVM heap memory used"
 
+
+- pattern: 'java.lang<type=Memory><NonHeapMemoryUsage>used'
+  name: jvm_non_heap_used_bytes
+  type: GAUGE
+  help: "JVM non-heap memory used"
+
+# =====================================================
+# CPU & THREADING
+# =====================================================
+
+# Process CPU Load
+- pattern: 'java.lang<type=OperatingSystem><>ProcessCpuLoad'
+  name: jvm_process_cpu_load_ratio
+  type: GAUGE
+  help: "Recent CPU usage for the JVM process (0.0-1.0)"
+
+# System CPU Load
+- pattern: 'java.lang<type=OperatingSystem><>SystemCpuLoad'
+  name: jvm_system_cpu_load_ratio
+  type: GAUGE
+  help: "Recent CPU usage for the whole system (0.0-1.0)"
+
+# Thread Count
+- pattern: 'java.lang<type=Threading><>ThreadCount'
+  name: kafka_jvm_threads_current
+  type: GAUGE
+  help: "Current thread count"
+
+# Heap Memory Max
 - pattern: 'java.lang<type=Memory><HeapMemoryUsage>max'
   name: jvm_heap_max_bytes
   type: GAUGE
-  help: "JVM heap memory max"
+  help: "JVM heap memory maximum"
 
 # =====================================================
 # REQUEST LATENCY (Minimal - only p99)
