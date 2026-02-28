@@ -20,6 +20,6 @@ CREATE TABLE sink_writes_log (
 
 
 
-ALTER TABLE your_sink_table 
+ALTER TABLE sink_events 
 ADD CONSTRAINT unique_kafka_offset 
 UNIQUE (kafka_topic, kafka_partition, kafka_offset);
