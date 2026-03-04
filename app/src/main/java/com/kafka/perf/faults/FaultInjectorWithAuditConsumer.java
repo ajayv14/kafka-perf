@@ -38,7 +38,7 @@ import com.kafka.perf.configs.KafkaConsumerConfig;
  * - F5: Slow sink backpressure
  * - F6: Network boundary fault
  */
-public class FaultInjectorConsumer {
+public class FaultInjectorWithAuditConsumer {
 
     private static final Logger logger = LoggerFactory.getLogger(FaultInjectorConsumer.class);
 
@@ -304,9 +304,8 @@ public class FaultInjectorConsumer {
         props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG,      config.heartbeatIntervalMs);
         props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG,       config.maxPollIntervalMs);
 
-      //  KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
-       
-       
+        // Wrap the KafkaConsumer with our AuditableConsumer to enable audit logging
+        // for both poll() and commitSync() pointcuts. 
         KafkaConsumer<String, String> consumer =
         new AuditableConsumer<>(
             new KafkaConsumer<>(props),   // real consumer passed as delegate
@@ -332,7 +331,6 @@ public class FaultInjectorConsumer {
                     continue;
                 }
 
-                // FIX: increment totalMessagesConsumed — was never updated before
                 totalMessagesConsumed += records.count();
 
                 // F5: Slow sink backpressure
@@ -354,12 +352,6 @@ public class FaultInjectorConsumer {
                 records.forEach(batch::add);
 
                 try {
-                    // processBatchTransactionally returns true only when the FULL batch
-                    // was written. Commit Kafka offsets only in that case.
-                    // FIX: Kafka offsets are now committed after every successful full-batch
-                    // write. Previously commitSync() was only called at shutdown, meaning
-                    // any crash mid-run would force full reprocessing from the last committed
-                    // offset (which was the start).
                     boolean fullBatchWritten = processBatchTransactionally(config, consumer, batch);
 
                     if (fullBatchWritten && !config.enableAutoCommit) {

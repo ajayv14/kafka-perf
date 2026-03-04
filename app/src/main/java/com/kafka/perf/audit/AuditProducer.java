@@ -106,19 +106,20 @@ public final class AuditProducer {
     /**
      * Publish an AuditRecord asynchronously.
      *
-     * The record's eventId is used as the Kafka message key so records for
-     * the same consumer group land on the same audit partition (useful for
-     * ordered replay). Errors are logged but never propagated.
+     * The record's eventId is used as the Kafka message key so paired
+     * BATCH_READ and OFFSET_COMMITTED events for the same batch are routed
+     * to the same partition for straightforward correlation. Errors are
+     * logged but never propagated.
      *
      * @param record the audit event to publish
      */
     public void send(AuditRecord record) {
         try {
             String json = record.toJson();
-            // Key by consumerGroup so all audit events for one group go to
-            // the same partition — makes audit log replay straightforward.
+            // Key by eventId so correlated audit events for one batch share
+            // a partition.
             ProducerRecord<String, String> kafkaRecord =
-                new ProducerRecord<>(auditTopic, record.consumerGroup, json);
+                new ProducerRecord<>(auditTopic, record.eventId, json);
 
             producer.send(kafkaRecord, (metadata, ex) -> {
                 if (ex != null) {

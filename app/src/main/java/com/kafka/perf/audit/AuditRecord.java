@@ -1,5 +1,11 @@
 package com.kafka.perf.audit;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+
 import java.time.Instant;
 import java.util.UUID;
 
@@ -22,9 +28,13 @@ import java.util.UUID;
  * pair sharing the same eventId in the audit topic. A BATCH_READ with no matching
  * OFFSET_COMMITTED indicates the consumer crashed between poll and commit.
  *
- * No external JSON library required — serialization is handled internally.
+ * JSON serialization/deserialization is handled via Jackson.
  */
 public final class AuditRecord {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
+        .registerModule(new JavaTimeModule())
+        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     public final String     eventId;       // shared key linking BATCH_READ <-> OFFSET_COMMITTED
     public final AuditStage stage;
@@ -71,6 +81,7 @@ public final class AuditRecord {
         public Builder eventId(String v)       { this.eventId = v;       return this; }
         public Builder consumerGroup(String v) { this.consumerGroup = v; return this; }
         public Builder sourceTopic(String v)   { this.sourceTopic = v;   return this; }
+        public Builder timestamp(Instant v)    { this.timestamp = v;     return this; }
         public Builder recordCount(int v)      { this.recordCount = v;   return this; }
         public Builder offsetMin(long v)       { this.offsetMin = v;     return this; }
         public Builder offsetMax(long v)       { this.offsetMax = v;     return this; }
@@ -79,7 +90,7 @@ public final class AuditRecord {
     }
 
     // -------------------------------------------------------------------------
-    // Serialization — zero external dependencies
+    // Serialization / Deserialization — Jackson
     // -------------------------------------------------------------------------
 
     /**
@@ -96,39 +107,72 @@ public final class AuditRecord {
      *    "sourceTopic":"events","timestamp":"2025-01-15T10:30:05Z"}
      */
     public String toJson() {
-        StringBuilder sb = new StringBuilder()
-            .append("{")
-            .append(jsonStr("eventId",       eventId))       .append(",")
-            .append(jsonStr("stage",         stage.name()))  .append(",")
-            .append(jsonStr("consumerGroup", consumerGroup)) .append(",")
-            .append(jsonStr("sourceTopic",   sourceTopic))   .append(",")
-            .append(jsonStr("timestamp",     timestamp.toString()));
+        try {
+            ObjectNode root = OBJECT_MAPPER.createObjectNode();
+            root.put("eventId", eventId);
+            root.put("stage", stage.name());
+            root.put("consumerGroup", consumerGroup);
+            root.put("sourceTopic", sourceTopic);
+            root.put("timestamp", timestamp.toString());
 
-        // Offset fields are only meaningful for BATCH_READ
-        if (stage == AuditStage.BATCH_READ) {
-            sb.append(",").append(jsonNum("recordCount", recordCount))
-              .append(",").append(jsonNum("offsetMin",   offsetMin))
-              .append(",").append(jsonNum("offsetMax",   offsetMax));
+            // Offset fields are only meaningful for BATCH_READ
+            if (stage == AuditStage.BATCH_READ) {
+                root.put("recordCount", recordCount);
+                root.put("offsetMin", offsetMin);
+                root.put("offsetMax", offsetMax);
+            }
+
+            return OBJECT_MAPPER.writeValueAsString(root);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to serialize AuditRecord", e);
         }
-
-        return sb.append("}").toString();
     }
 
-    private static String jsonStr(String key, String value) {
-        return "\"" + key + "\":\"" + escape(value) + "\"";
+    public static AuditRecord fromJson(String json) {
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(json);
+
+            AuditStage stage = AuditStage.valueOf(requiredText(root, "stage"));
+            Builder builder = AuditRecord.builder(stage)
+                .eventId(requiredText(root, "eventId"))
+                .consumerGroup(requiredText(root, "consumerGroup"))
+                .sourceTopic(requiredText(root, "sourceTopic"))
+                .timestamp(Instant.parse(requiredText(root, "timestamp")));
+
+            if (stage == AuditStage.BATCH_READ) {
+                builder.recordCount(requiredInt(root, "recordCount"))
+                       .offsetMin(requiredLong(root, "offsetMin"))
+                       .offsetMax(requiredLong(root, "offsetMax"));
+            }
+
+            return builder.build();
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to deserialize AuditRecord", e);
+        }
     }
 
-    private static String jsonNum(String key, long value) {
-        return "\"" + key + "\":" + value;
+    private static String requiredText(JsonNode node, String field) {
+        JsonNode child = node.get(field);
+        if (child == null || child.isNull()) {
+            throw new IllegalArgumentException("Missing required field: " + field);
+        }
+        return child.asText();
     }
 
-    private static String escape(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
+    private static int requiredInt(JsonNode node, String field) {
+        JsonNode child = node.get(field);
+        if (child == null || child.isNull()) {
+            throw new IllegalArgumentException("Missing required field: " + field);
+        }
+        return child.asInt();
+    }
+
+    private static long requiredLong(JsonNode node, String field) {
+        JsonNode child = node.get(field);
+        if (child == null || child.isNull()) {
+            throw new IllegalArgumentException("Missing required field: " + field);
+        }
+        return child.asLong();
     }
 
     @Override
