@@ -19,7 +19,7 @@ import org.slf4j.LoggerFactory;
 /**
  * AuditableConsumer — a transparent delegate wrapper around KafkaConsumer that
  * intercepts two points in the consumer pipeline and publishes audit events to
- * the Kafka audit topic. No framework, no agent, no extra dependencies.
+ * the Kafka audit topic.
  *
  * Pointcut 1 — BATCH_READ
  *   Fires after poll() returns a non-empty batch.
@@ -236,11 +236,19 @@ public class AuditableConsumer<K, V> extends KafkaConsumer<K, V> {
 
     @Override
     public void close() {
+        if (delegate == null) {
+            super.close();
+            return;
+        }
         delegate.close();
     }
 
     @Override
     public void close(Duration timeout) {
+        if (delegate == null) {
+            super.close(timeout);
+            return;
+        }
         delegate.close(timeout);
     }
 
