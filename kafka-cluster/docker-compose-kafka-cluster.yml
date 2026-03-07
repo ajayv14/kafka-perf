@@ -207,6 +207,10 @@ services:
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.49.1
     container_name: cadvisor
+    command:
+      - '--docker_only=true'
+      - '--store_container_labels=false'
+      - '--whitelisted_container_labels=com.docker.compose.service,com.docker.compose.project'
     ports:
       - "8080:8080"
     volumes:
@@ -215,6 +219,7 @@ services:
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     privileged: true
     devices:
       - /dev/kmsg
