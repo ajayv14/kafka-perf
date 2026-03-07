@@ -118,7 +118,7 @@ public class FaultInjectorConsumer {
         boolean shouldInjectF1 = faultScheduler != null
                 && faultScheduler.shouldInjectScheduled(FaultType.F1_CRASH_BEFORE_DB_COMMIT);
         if (shouldInjectF1) {
-            faultInjector.maybeInject(FaultType.F1_CRASH_BEFORE_DB_COMMIT);
+            faultInjector.injectDeterministic(FaultType.F1_CRASH_BEFORE_DB_COMMIT);
         }
 
         String insertSql = String.format(
@@ -187,7 +187,7 @@ public class FaultInjectorConsumer {
                 && faultScheduler.shouldInjectScheduled(FaultType.F3_PARTIAL_BATCH_WRITES);
         boolean applyPartialWrites = false;
         if (shouldInjectF3) {
-            applyPartialWrites = faultInjector.maybeInject(FaultType.F3_PARTIAL_BATCH_WRITES);
+            applyPartialWrites = faultInjector.injectDeterministic(FaultType.F3_PARTIAL_BATCH_WRITES);
         }
 
         List<org.apache.kafka.clients.consumer.ConsumerRecord<String, String>> recordsToWrite = records;
@@ -227,7 +227,7 @@ public class FaultInjectorConsumer {
                 boolean shouldInjectF2 = faultScheduler != null
                         && faultScheduler.shouldInjectScheduled(FaultType.F2_CRASH_AFTER_DB_COMMIT_BEFORE_ACK);
                 if (shouldInjectF2) {
-                    faultInjector.maybeInject(FaultType.F2_CRASH_AFTER_DB_COMMIT_BEFORE_ACK);
+                    faultInjector.injectDeterministic(FaultType.F2_CRASH_AFTER_DB_COMMIT_BEFORE_ACK);
                 }
 
                 if (applyPartialWrites) {
@@ -333,14 +333,14 @@ public class FaultInjectorConsumer {
                 boolean shouldInjectF5 = faultScheduler != null
                         && faultScheduler.shouldInjectScheduled(FaultType.F5_SLOW_SINK_BACKPRESSURE);
                 if (shouldInjectF5) {
-                    faultInjector.maybeInject(FaultType.F5_SLOW_SINK_BACKPRESSURE);
+                    faultInjector.injectDeterministic(FaultType.F5_SLOW_SINK_BACKPRESSURE);
                 }
 
                 // F6: Network boundary fault
                 boolean shouldInjectF6 = faultScheduler != null
                         && faultScheduler.shouldInjectScheduled(FaultType.F6_NETWORK_BOUNDARY_FAULT);
                 if (shouldInjectF6) {
-                    faultInjector.maybeInject(FaultType.F6_NETWORK_BOUNDARY_FAULT);
+                    faultInjector.injectDeterministic(FaultType.F6_NETWORK_BOUNDARY_FAULT);
                 }
 
                 List<org.apache.kafka.clients.consumer.ConsumerRecord<String, String>> batch =
@@ -360,6 +360,13 @@ public class FaultInjectorConsumer {
                         // Commit synchronously to guarantee offsets are stored before
                         // processing the next batch. Use async if throughput is a concern.
                         consumer.commitSync();
+                    }
+
+                    // Advance sequential fault scheduler by the number of consumed
+                    // records for this poll so faults progress F1 -> ... -> F6 with
+                    // configured break periods between windows.
+                    if (faultScheduler != null) {
+                        faultScheduler.incrementMessageCounter(records.count());
                     }
 
                 } catch (SQLException e) {

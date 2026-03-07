@@ -17,10 +17,19 @@ public class FaultInjector {
         this.random = new Random(seed);
     }
 
-        public boolean maybeInject(FaultType type) {
+    public boolean maybeInject(FaultType type) {
         if (!config.shouldInject(type, random)) {
             return false;
         }
+
+        return injectDeterministic(type);
+    }
+
+    /**
+     * Deterministic injection path used by scheduled one-shot fault windows.
+     * Executes the fault action unconditionally.
+     */
+    public boolean injectDeterministic(FaultType type) {
 
         logger.info("Injecting fault: {}", type);
 
