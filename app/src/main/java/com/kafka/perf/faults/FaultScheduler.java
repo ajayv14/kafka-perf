@@ -1,34 +1,29 @@
 package com.kafka.perf.faults;
 
 import java.io.InputStream;
+import java.util.EnumMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Properties;
-import java.util.Random;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * FaultScheduler - Manages SEQUENTIAL fault injection by message count.
+ * FaultScheduler - Manages scheduled fault injection.
  *
- * Injects faults in order F1 -> F2 -> F3 -> F4 -> F5 -> F6 -> repeat
- * with configurable breaks (periods without faults) between fault injections.
+ * Supports two modes:
+ * 1) TIME mode (preferred): each fault fires ONCE at a minute-based schedule.
+ * 2) SEQUENTIAL mode: message-count windows (legacy/compatibility).
  *
- * Each fault is applied for a fixed duration (in messages), followed by an optional break,
- * then the next fault activates. Supports multiple iterations through the complete fault sequence.
- *
- * Configuration format:
- * fault.schedule.sequential.enabled=true
- * fault.schedule.duration.messages=10000      (duration per fault)
- * fault.schedule.break.messages=0             (duration of break between faults, 0 = no breaks)
- * fault.schedule.iterations=2                 (how many times to cycle through F1-F6)
- *
- * Example: Sequential injection with 10k msgs per fault, 5k msgs break, 2 iterations
- * Messages 0-10k:     F1 active
- * Messages 10k-15k:   BREAK (no faults)
- * Messages 15k-25k:   F2 active
- * Messages 25k-30k:   BREAK (no faults)
- * ...continuing through F6...
+ * TIME mode configuration:
+ * fault.schedule.time.enabled=true
+ * fault.schedule.time.start.delay.minutes=0
+ * fault.schedule.time.gap.minutes=2
+ * fault.schedule.time.order=F1,F2,F3,F4,F5,F6
  */
 public class FaultScheduler {
 
@@ -49,14 +44,35 @@ public class FaultScheduler {
         }
     }
 
-    private SequentialScheduleConfig sequentialConfig = null;
+    // Scheduler configuration for time-based one-shot injection
+    private static class TimeScheduleConfig {
+        final boolean enabled;
+        final long startDelayMinutes;
+        final long gapMinutes;
+        final FaultType[] order;
 
-    // FIX: use AtomicLong so concurrent callers (e.g. multiple threads calling
-    // incrementMessageCounter) don't race. Previously a plain long with no synchronization.
+        TimeScheduleConfig(boolean enabled, long startDelayMinutes, long gapMinutes, FaultType[] order) {
+            this.enabled = enabled;
+            this.startDelayMinutes = startDelayMinutes;
+            this.gapMinutes = gapMinutes;
+            this.order = order;
+        }
+    }
+
+    private SequentialScheduleConfig sequentialConfig = null;
+    private TimeScheduleConfig timeConfig = null;
+
+    // Message-based counter (used by sequential mode)
     private final AtomicLong globalMessageCounter = new AtomicLong(0);
 
-    private FaultConfig faultConfig = null;
-    private final Random random;
+    // Track last absolute window-start that was triggered per fault (sequential mode)
+    private final Map<FaultType, Long> lastTriggeredWindowStart = new EnumMap<>(FaultType.class);
+
+    // Track one-shot trigger completion per fault (time mode)
+    private final Map<FaultType, Boolean> timeTriggered = new EnumMap<>(FaultType.class);
+
+    // Scheduler start reference for time mode
+    private final AtomicLong schedulerStartMs = new AtomicLong(System.currentTimeMillis());
 
     // FIX: removed dead-code iterationCounters EnumMap — it was initialised and reset
     // but never read or written during normal operation.
@@ -81,6 +97,30 @@ public class FaultScheduler {
 
         FaultScheduler scheduler = new FaultScheduler(faultConfig);
 
+        boolean timeEnabled = Boolean.parseBoolean(
+            getOrEnv("fault.schedule.time.enabled", "FAULT_SCHEDULE_TIME_ENABLED", props, "false"));
+
+        if (timeEnabled) {
+            long startDelayMinutes = Long.parseLong(
+                getOrEnv("fault.schedule.time.start.delay.minutes", "FAULT_SCHEDULE_TIME_START_DELAY_MINUTES", props, "0"));
+
+            long gapMinutes = Long.parseLong(
+                getOrEnv("fault.schedule.time.gap.minutes", "FAULT_SCHEDULE_TIME_GAP_MINUTES", props, "1"));
+
+            String rawOrder = getOrEnv(
+                "fault.schedule.time.order",
+                "FAULT_SCHEDULE_TIME_ORDER",
+                props,
+                "F1,F2,F3,F4,F5,F6");
+
+            FaultType[] order = parseFaultOrder(rawOrder);
+            scheduler.timeConfig = new TimeScheduleConfig(true, startDelayMinutes, gapMinutes, order);
+
+            logger.info("Time mode enabled: startDelay={}m, gap={}m, order={}, one-shot per fault",
+                startDelayMinutes, gapMinutes, rawOrder);
+            return scheduler;
+        }
+
         boolean sequentialEnabled = Boolean.parseBoolean(
             getOrEnv("fault.schedule.sequential.enabled", "FAULT_SCHEDULE_SEQUENTIAL_ENABLED", props, "false"));
 
@@ -97,9 +137,8 @@ public class FaultScheduler {
             scheduler.sequentialConfig = new SequentialScheduleConfig(true, durationPerFault, breakDuration, iterations);
 
             String breakInfo = breakDuration > 0 ? String.format(" with %d msg breaks", breakDuration) : "";
-            String probInfo  = faultConfig != null ? " (with probability-based injection)" : "";
-            logger.info("Sequential mode enabled: {} msgs per fault{}, {} full cycles (F1->F2->...->F6){}",
-                durationPerFault, breakInfo, iterations, probInfo);
+            logger.info("Sequential mode enabled: {} msgs per fault{}, {} full cycles (F1->F2->...->F6), deterministic one-shot per window",
+                durationPerFault, breakInfo, iterations);
         }
 
         return scheduler;
@@ -114,8 +153,10 @@ public class FaultScheduler {
     }
 
     public FaultScheduler(FaultConfig faultConfig) {
-        this.faultConfig = faultConfig;
-        this.random = new Random();
+        for (FaultType type : FaultType.values()) {
+            lastTriggeredWindowStart.put(type, -1L);
+            timeTriggered.put(type, false);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -129,15 +170,20 @@ public class FaultScheduler {
      * exits a window — detected by comparing the current and previous counter values —
      * so they fire correctly even when the counter is incremented in large batch steps.
      *
-     * FIX (probability semantics): probability is now evaluated once per WINDOW ENTRY
-     * rather than on every call. A boolean decision is latched for the duration of the
-     * window so the configured probability truly represents "chance this fault fires
-     * during its scheduled window" rather than "chance per poll".
+     * Returns true when a fault should be injected according to the active mode.
      *
      * @param faultType The fault to check
      * @return true if this fault should be injected now
      */
     public boolean shouldInjectScheduled(FaultType faultType) {
+        if (timeConfig != null && timeConfig.enabled) {
+            return shouldInjectTimeScheduled(faultType);
+        }
+
+        return shouldInjectSequential(faultType);
+    }
+
+    private boolean shouldInjectSequential(FaultType faultType) {
         if (sequentialConfig == null || !sequentialConfig.enabled) {
             return false;
         }
@@ -159,52 +205,55 @@ public class FaultScheduler {
         long windowEnd   = windowStart + sequentialConfig.durationPerFaultMessages;
 
         boolean inWindow = posInCycle >= windowStart && posInCycle < windowEnd;
-
-        // --- boundary logging (safe for batch increments) ---
-        // Entered window: previous position was before windowStart, current is inside
-        long prevPosInCycle = (counter > 0) ? ((counter - 1) % cycleLength) : -1;
-        boolean justEntered = inWindow && (prevPosInCycle < windowStart || prevPosInCycle >= windowEnd);
-        if (justEntered) {
-            String probInfo = faultConfig != null
-                ? String.format(" (%.0f%% probability)", faultConfig.getProbability(faultType) * 100)
-                : "";
-            logger.info(">>> Entering {} window (cycle {}, msg {}-{}){}",
-                faultType, currentCycle + 1,
-                currentCycle * cycleLength + windowStart,
-                currentCycle * cycleLength + windowEnd,
-                probInfo);
-        }
-
-        // Exited window into break: previous position was inside, current is in break zone
-        boolean justExited = !inWindow
-                && sequentialConfig.breakDurationMessages > 0
-                && posInCycle >= windowEnd
-                && posInCycle < windowEnd + sequentialConfig.breakDurationMessages
-                && prevPosInCycle >= windowStart && prevPosInCycle < windowEnd;
-        if (justExited) {
-            logger.info("<<< Exited {} window, entering break period", faultType);
-        }
-
         if (!inWindow) {
             return false;
         }
 
-        // FIX: probability is applied once per window entry (on justEntered) and the
-        // decision is NOT re-rolled on every subsequent call within the same window.
-        // We approximate this by only rolling on window entry; for the remainder of
-        // the window we return true (the FaultInjector's own probability can still
-        // gate the actual execution if further granularity is needed).
-        if (faultConfig != null && justEntered) {
-            double probability = faultConfig.getProbability(faultType);
-            boolean willFire = random.nextDouble() < probability;
-            if (!willFire) {
-                logger.info("--- {} window active but probability roll failed (p={}), skipping this window",
-                    faultType, probability);
-                // Return false for just this entry tick; window will continue to be
-                // checked on subsequent calls — see NOTE below.
-                return false;
-            }
+        long absoluteWindowStart = currentCycle * cycleLength + windowStart;
+        long absoluteWindowEnd   = currentCycle * cycleLength + windowEnd;
+        long lastStart = lastTriggeredWindowStart.getOrDefault(faultType, -1L);
+
+        if (lastStart == absoluteWindowStart) {
+            return false;
         }
+
+        lastTriggeredWindowStart.put(faultType, absoluteWindowStart);
+        logger.info(">>> Triggering {} once for window (cycle {}, msg {}-{})",
+            faultType, currentCycle + 1, absoluteWindowStart, absoluteWindowEnd);
+
+        return true;
+    }
+
+    private boolean shouldInjectTimeScheduled(FaultType faultType) {
+        if (timeConfig == null || !timeConfig.enabled) {
+            return false;
+        }
+
+        if (Boolean.TRUE.equals(timeTriggered.get(faultType))) {
+            return false;
+        }
+
+        int index = indexOf(timeConfig.order, faultType);
+        if (index < 0) {
+            return false;
+        }
+
+        long dueMs = schedulerStartMs.get()
+                + TimeUnit.MINUTES.toMillis(timeConfig.startDelayMinutes)
+                + TimeUnit.MINUTES.toMillis((long) index * timeConfig.gapMinutes);
+
+        long now = System.currentTimeMillis();
+        if (now < dueMs) {
+            return false;
+        }
+
+        timeTriggered.put(faultType, true);
+
+        long elapsedMs = now - schedulerStartMs.get();
+        logger.info(">>> Triggering {} once at elapsed={}s (scheduled at ~{}m from start)",
+            faultType,
+            TimeUnit.MILLISECONDS.toSeconds(elapsedMs),
+            timeConfig.startDelayMinutes + ((long) index * timeConfig.gapMinutes));
 
         return true;
     }
@@ -256,6 +305,11 @@ public class FaultScheduler {
      */
     public void reset() {
         globalMessageCounter.set(0);
+        for (FaultType type : FaultType.values()) {
+            lastTriggeredWindowStart.put(type, -1L);
+            timeTriggered.put(type, false);
+        }
+        schedulerStartMs.set(System.currentTimeMillis());
     }
 
     // -------------------------------------------------------------------------
@@ -272,6 +326,10 @@ public class FaultScheduler {
      * @return FaultType currently in its active window, or null if in a break or idle
      */
     public FaultType getCurrentActiveFault() {
+        if (timeConfig != null && timeConfig.enabled) {
+            return null;
+        }
+
         if (sequentialConfig == null || !sequentialConfig.enabled) {
             return null;
         }
@@ -301,6 +359,21 @@ public class FaultScheduler {
      * Get detailed runtime status for monitoring/debugging.
      */
     public String getDetailedStatus() {
+        if (timeConfig != null && timeConfig.enabled) {
+            StringBuilder sb = new StringBuilder();
+            long elapsedMs = System.currentTimeMillis() - schedulerStartMs.get();
+            sb.append("Time-based fault scheduling is enabled\n");
+            sb.append(String.format("Elapsed since scheduler start: %d s%n", TimeUnit.MILLISECONDS.toSeconds(elapsedMs)));
+            sb.append(String.format("Start delay: %d min, Gap: %d min%n", timeConfig.startDelayMinutes, timeConfig.gapMinutes));
+            for (int i = 0; i < timeConfig.order.length; i++) {
+                FaultType ft = timeConfig.order[i];
+                long dueMin = timeConfig.startDelayMinutes + ((long) i * timeConfig.gapMinutes);
+                String state = Boolean.TRUE.equals(timeTriggered.get(ft)) ? "[TRIGGERED]" : "[PENDING]";
+                sb.append(String.format("  %s at ~%d min %s%n", ft, dueMin, state));
+            }
+            return sb.toString();
+        }
+
         if (sequentialConfig == null || !sequentialConfig.enabled) {
             return "Sequential fault scheduling is disabled\n";
         }
@@ -347,6 +420,21 @@ public class FaultScheduler {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("==== Fault Schedule Configuration ====\n");
+        if (timeConfig != null && timeConfig.enabled) {
+            sb.append("Time Mode ENABLED (one-shot):\n");
+            sb.append(String.format("  Start delay:                  %d minutes%n", timeConfig.startDelayMinutes));
+            sb.append(String.format("  Gap between faults:           %d minutes%n", timeConfig.gapMinutes));
+            sb.append("  Order:                        ");
+            for (int i = 0; i < timeConfig.order.length; i++) {
+                sb.append(timeConfig.order[i]);
+                if (i < timeConfig.order.length - 1) {
+                    sb.append(" -> ");
+                }
+            }
+            sb.append("\n");
+            return sb.toString();
+        }
+
         if (sequentialConfig == null || !sequentialConfig.enabled) {
             sb.append("Sequential fault scheduling is DISABLED.\n");
         } else {
@@ -388,5 +476,52 @@ public class FaultScheduler {
         }
         String propValue = props.getProperty(propKey);
         return propValue != null ? propValue : defaultValue;
+    }
+
+    private static FaultType[] parseFaultOrder(String rawOrder) {
+        if (rawOrder == null || rawOrder.isBlank()) {
+            return FaultType.values();
+        }
+
+        String[] parts = rawOrder.split(",");
+        Set<FaultType> ordered = new LinkedHashSet<>();
+        for (String part : parts) {
+            String token = part.trim().toUpperCase();
+            if (token.isEmpty()) {
+                continue;
+            }
+            try {
+                ordered.add(toFaultType(token));
+            } catch (IllegalArgumentException e) {
+                logger.warn("Ignoring unknown fault token in order: {}", token);
+            }
+        }
+
+        if (ordered.isEmpty()) {
+            return FaultType.values();
+        }
+
+        return ordered.toArray(FaultType[]::new);
+    }
+
+    private static FaultType toFaultType(String token) {
+        return switch (token) {
+            case "F1" -> FaultType.F1_CRASH_BEFORE_DB_COMMIT;
+            case "F2" -> FaultType.F2_CRASH_AFTER_DB_COMMIT_BEFORE_ACK;
+            case "F3" -> FaultType.F3_PARTIAL_BATCH_WRITES;
+            case "F4" -> FaultType.F4_DB_CONTAINER_RESTART;
+            case "F5" -> FaultType.F5_SLOW_SINK_BACKPRESSURE;
+            case "F6" -> FaultType.F6_NETWORK_BOUNDARY_FAULT;
+            default -> throw new IllegalArgumentException("Unknown fault token: " + token);
+        };
+    }
+
+    private static int indexOf(FaultType[] order, FaultType target) {
+        for (int i = 0; i < order.length; i++) {
+            if (order[i] == target) {
+                return i;
+            }
+        }
+        return -1;
     }
 }
