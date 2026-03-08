@@ -38,8 +38,7 @@ def create_tables():
     add_constraint_sql = """
     ALTER TABLE sink_events 
     ADD CONSTRAINT unique_kafka_offset 
-    UNIQUE (kafka_topic, kafka_partition, kafka_offset)
-    ON CONFLICT DO NOTHING;
+    UNIQUE (kafka_topic, kafka_partition, kafka_offset);
     """
     
     try:
