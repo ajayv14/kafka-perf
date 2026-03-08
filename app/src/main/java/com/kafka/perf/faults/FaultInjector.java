@@ -9,20 +9,10 @@ public class FaultInjector {
 
     private static final Logger logger = LoggerFactory.getLogger(FaultInjector.class);
 
-    private final FaultConfig config;
     private final Random random;
 
     public FaultInjector(FaultConfig config, long seed) {
-        this.config = config;
         this.random = new Random(seed);
-    }
-
-    public boolean maybeInject(FaultType type) {
-        if (!config.shouldInject(type, random)) {
-            return false;
-        }
-
-        return injectDeterministic(type);
     }
 
     /**
@@ -42,8 +32,7 @@ public class FaultInjector {
                 crash();
 
             case F3_PARTIAL_BATCH_WRITES ->
-                // Method in consumer checks only for maybeInject() and applies a fixed 50% failure.
-                // Hence this case does not need to do anything here, just log the fault injection.
+                // Consumer applies partial batch logic when this fault is scheduled
                 logger.info("Partial batch writes enabled for current batch");
 
             case F4_DB_CONTAINER_RESTART ->
