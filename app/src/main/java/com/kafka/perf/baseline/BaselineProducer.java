@@ -4,7 +4,6 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Properties;
-import java.util.concurrent.CountDownLatch;
 
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -195,7 +194,6 @@ public class BaselineProducer {
         }
 
         // Measured run
-        CountDownLatch latch = new CountDownLatch(NUM_RECORDS);
         long startTime = System.nanoTime();
 
         try {
@@ -207,8 +205,6 @@ public class BaselineProducer {
                         new ProducerRecord<>(TOPIC, "key-" + i, payload);
 
                 producer.send(record, (metadata, exception) -> {
-                    latch.countDown();
-
                     if (exception != null) {
                         exception.printStackTrace();
                     }
@@ -232,7 +228,7 @@ public class BaselineProducer {
                 //if (i % flushIntervalRecords == 0 && i != 0) producer.flush();
             }
 
-            latch.await(); // wait for all acks
+            // commitTransaction() and close() already wait for all in-flight sends to complete
             if (txnEnabled) producer.commitTransaction();
 
         } catch (ProducerFencedException |
