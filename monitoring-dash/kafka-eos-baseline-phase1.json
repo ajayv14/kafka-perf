@@ -34,7 +34,7 @@
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "",
+            "axisLabel": "Throughput (KB/s)",
             "axisPlacement": "auto",
             "barAlignment": 0,
             "barWidthFactor": 0.6,
@@ -78,7 +78,7 @@
               }
             ]
           },
-          "unit": "none"
+          "unit": "KBs"
         },
         "overrides": []
       },
@@ -101,18 +101,23 @@
           "hideZeros": false,
           "mode": "single",
           "sort": "none"
+        },
+        "axes": {
+          "x": {
+            "label": "Time"
+          }
         }
       },
       "pluginVersion": "12.3.2+security-01",
       "targets": [
         {
-          "expr": "avg(kafka_cluster_throughput_bytes_per_sec{ })",
+          "expr": "avg(kafka_cluster_throughput_bytes_per_sec{ }) / 1024",
           "fromExploreMetrics": false,
           "legendFormat": "avg",
           "refId": "kafka_cluster_throughput_bytes_per_sec-avg"
         }
       ],
-      "title": "kafka_cluster_throughput_bytes_per_sec",
+      "title": "Kafka Cluster Throughput (KB/sec)",
       "type": "timeseries"
     },
     {
@@ -128,7 +133,7 @@
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "",
+            "axisLabel": "Memory (GB)",
             "axisPlacement": "auto",
             "barAlignment": 0,
             "barWidthFactor": 0.6,
@@ -172,7 +177,7 @@
               }
             ]
           },
-          "unit": "none"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -195,6 +200,11 @@
           "hideZeros": false,
           "mode": "single",
           "sort": "none"
+        },
+        "axes": {
+          "x": {
+            "label": "Time"
+          }
         }
       },
       "pluginVersion": "12.3.2+security-01",
@@ -206,7 +216,7 @@
           "refId": "kafka_cluster_memory_total_gb-avg"
         }
       ],
-      "title": "kafka_cluster_memory_total_gb",
+      "title": "Kafka Cluster Memory Total (GB)",
       "type": "timeseries"
     },
     {
@@ -222,7 +232,7 @@
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "",
+            "axisLabel": "CPU Usage (%)",
             "axisPlacement": "auto",
             "barAlignment": 0,
             "barWidthFactor": 0.6,
@@ -289,6 +299,11 @@
           "hideZeros": false,
           "mode": "single",
           "sort": "none"
+        },
+        "axes": {
+          "x": {
+            "label": "Time"
+          }
         }
       },
       "pluginVersion": "12.3.2+security-01",
@@ -300,7 +315,7 @@
           "refId": "kafka_cluster_docker_cpu_percent-avg"
         }
       ],
-      "title": "kafka_cluster_docker_cpu_percent",
+      "title": "Kafka Cluster Docker CPU (Percent)",
       "type": "timeseries"
     }
   ],
