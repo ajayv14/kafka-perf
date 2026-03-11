@@ -34,7 +34,7 @@
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "Throughput (KB/s)",
+            "axisLabel": "Throughput (MB/s)",
             "axisPlacement": "auto",
             "barAlignment": 0,
             "barWidthFactor": 0.6,
@@ -78,7 +78,7 @@
               }
             ]
           },
-          "unit": "KBs"
+          "unit": "MBs"
         },
         "overrides": []
       },
@@ -111,13 +111,14 @@
       "pluginVersion": "12.3.2+security-01",
       "targets": [
         {
-          "expr": "avg(kafka_cluster_throughput_bytes_per_sec{ }) / 1024",
+          "expr": "avg(kafka_cluster_throughput_bytes_per_sec{ }) / 1048576",
           "fromExploreMetrics": false,
           "legendFormat": "avg",
-          "refId": "kafka_cluster_throughput_bytes_per_sec-avg"
+          "refId": "kafka_cluster_throughput_bytes_per_sec-avg",
+          "interval": "1m"
         }
       ],
-      "title": "Kafka Cluster Throughput (KB/sec)",
+      "title": "Kafka Cluster Throughput",
       "type": "timeseries"
     },
     {
@@ -210,13 +211,14 @@
       "pluginVersion": "12.3.2+security-01",
       "targets": [
         {
-          "expr": "avg(kafka_cluster_memory_total_gb{ })",
+          "expr": "avg(kafka_cluster_container_memory_gb{ })",
           "fromExploreMetrics": false,
           "legendFormat": "avg",
-          "refId": "kafka_cluster_memory_total_gb-avg"
+          "refId": "kafka_cluster_container_memory_gb-avg",
+          "interval": "1m"
         }
       ],
-      "title": "Kafka Cluster Memory Total (GB)",
+      "title": "Kafka Cluster Container Memory (GB)",
       "type": "timeseries"
     },
     {
@@ -309,13 +311,14 @@
       "pluginVersion": "12.3.2+security-01",
       "targets": [
         {
-          "expr": "avg(kafka_cluster_docker_cpu_percent{ })",
+          "expr": "avg(kafka_cluster_cpu_percent{ })",
           "fromExploreMetrics": false,
           "legendFormat": "avg",
-          "refId": "kafka_cluster_docker_cpu_percent-avg"
+          "refId": "kafka_cluster_cpu_percent-avg",
+          "interval": "1m"
         }
       ],
-      "title": "Kafka Cluster Docker CPU (Percent)",
+      "title": "Kafka Cluster CPU Usage (%)",
       "type": "timeseries"
     }
   ],

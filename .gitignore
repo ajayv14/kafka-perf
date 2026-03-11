@@ -1,4 +1,14 @@
-# Maven
+# Python virtualenvs
+kafka-perf-venv/
+venv/
+.env/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# VS Code settings
+.vscode/# Maven
 target/
 *.jar
 *.war
