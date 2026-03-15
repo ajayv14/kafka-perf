@@ -1,68 +1,109 @@
 groups:
-  - name: kafka_throughput
-    interval: 30s
-    rules:
-      # Network throughput in KB/sec
-      - record: kafka_broker_bytes_in_kb_per_sec
-        expr: sum by(instance) (rate(kafka_broker_bytes_in_total[5m])) / 1024
-      
-      - record: kafka_broker_bytes_out_kb_per_sec
-        expr: sum by(instance) (rate(kafka_broker_bytes_out_total[5m])) / 1024
-      
-      # Cluster-wide network throughput in KB/sec
-      - record: kafka_cluster_bytes_in_kb_per_sec
-        expr: sum(rate(kafka_broker_bytes_in_total[5m])) / 1024
-      
-      - record: kafka_cluster_bytes_out_kb_per_sec
-        expr: sum(rate(kafka_broker_bytes_out_total[5m])) / 1024
-      
-      # Cluster-wide network throughput in bytes/sec (combined in + out)
-      - record: kafka_cluster_throughput_bytes_per_sec
-        expr: sum(rate(kafka_broker_bytes_in_total[5m])) + sum(rate(kafka_broker_bytes_out_total[5m]))
-      
+- name: kafka_throughput
+  interval: 30s
+  rules:
 
-  - name: kafka_broker_resources
-    interval: 30s
-    rules:
-      # Broker CPU metrics from container metrics (primary source)
-      - record: kafka_broker_cpu_usage_percent
-        expr: |-
-          sum by(instance) (
-            label_replace(
-              rate(container_cpu_usage_seconds_total{name=~"kafka-[0-9]+"}[5m]) * 100,
-              "instance", "$1", "name", "(kafka-[0-9]+)"
-            )
-          )
-      
-      - record: kafka_cluster_cpu_usage_percent
-        expr: avg(kafka_broker_cpu_usage_percent)
-      
-      # Broker memory metrics in MB
-      - record: kafka_broker_heap_memory_mb
-        expr: jvm_heap_used_bytes / 1024 / 1024
-  
-      
-      - record: kafka_broker_heap_memory_usage_percent
-        expr: (jvm_heap_used_bytes / jvm_heap_max_bytes) * 100
-      
-      - record: kafka_broker_non_heap_memory_mb
-        expr: jvm_non_heap_used_bytes / 1024 / 1024
-      
-      # Cluster average memory usage
-      - record: kafka_cluster_heap_memory_usage_percent
-        expr: avg(kafka_broker_heap_memory_usage_percent)
-      
-      # Heap memory max in MB
-      - record: kafka_broker_heap_memory_max_mb
-        expr: jvm_heap_max_bytes / 1024 / 1024
+  - record: kafka_broker_bytes_in_kb_per_sec
+    expr: sum by(instance) (rate(kafka_broker_bytes_in_total[5m])) / 1024
 
-  - name: kafka_container_resources
-    interval: 30s
-    rules:
-      # Fallback CPU metric derived from broker JVM process CPU load (0..1 -> %)
-      - record: kafka_cluster_docker_cpu_percent
-        expr: avg(jvm_process_cpu_load_ratio) * 100
+  - record: kafka_broker_bytes_out_kb_per_sec
+    expr: sum by(instance) (rate(kafka_broker_bytes_out_total[5m])) / 1024
 
-      # Fallback memory metric: total broker JVM memory (heap + non-heap) in GB
-      - record: kafka_cluster_memory_total_gb
-        expr: sum((jvm_heap_used_bytes + jvm_non_heap_used_bytes)) / 1024 / 1024 / 1024
+  - record: kafka_broker_throughput_kb_per_sec
+    expr: sum by(instance) (rate(kafka_broker_bytes_in_total[5m]) + rate(kafka_broker_bytes_out_total[5m])) / 1024
+
+  - record: kafka_cluster_bytes_in_kb_per_sec
+    expr: sum(rate(kafka_broker_bytes_in_total[5m])) / 1024
+
+  - record: kafka_cluster_bytes_out_kb_per_sec
+    expr: sum(rate(kafka_broker_bytes_out_total[5m])) / 1024
+
+  - record: kafka_cluster_throughput_bytes_per_sec
+    expr: sum(rate(kafka_broker_bytes_in_total[5m]) + rate(kafka_broker_bytes_out_total[5m]))
+
+  - record: kafka_cluster_messages_per_sec
+    expr: sum(rate(kafka_broker_messages_in_total[5m]))
+
+
+- name: kafka_cpu
+  interval: 30s
+  rules:
+
+  - record: kafka_broker_cpu_percent
+    expr: |-
+      sum by(broker) (
+        label_replace(
+          rate(container_cpu_usage_seconds_total{id=~"/docker/605abf4888ea3d2827bb56708745bc2557ad960fe4b1c2e5356617ad34188e1d"}[5m]) * 100,
+          "broker", "kafka-1", "id", ".*"
+        )
+        or
+        label_replace(
+          rate(container_cpu_usage_seconds_total{id=~"/docker/53fc28123ff0cf346e605c7e9ef61c9871ae836fb23dabf086f813ee3bcee690"}[5m]) * 100,
+          "broker", "kafka-2", "id", ".*"
+        )
+        or
+        label_replace(
+          rate(container_cpu_usage_seconds_total{id=~"/docker/c848dcef167d33033e6855901b85415c201339ceee32f2f48fcc61332ad70651"}[5m]) * 100,
+          "broker", "kafka-3", "id", ".*"
+        )
+        or
+        label_replace(
+          rate(container_cpu_usage_seconds_total{container_label_com_docker_compose_service=~"kafka-[0-9]+"}[5m]) * 100,
+          "broker", "$1", "container_label_com_docker_compose_service", "(kafka-[0-9]+)"
+        )
+        or
+        label_replace(
+          rate(container_cpu_usage_seconds_total{name=~"kafka-[0-9]+"}[5m]) * 100,
+          "broker", "$1", "name", "(kafka-[0-9]+)"
+        )
+      )
+
+  - record: kafka_cluster_cpu_percent
+    expr: sum(kafka_broker_cpu_percent)
+
+  - record: kafka_cluster_jvm_cpu_percent
+    expr: avg(jvm_process_cpu_load_ratio) * 100
+
+
+- name: kafka_container_memory
+  interval: 30s
+  rules:
+
+  - record: kafka_broker_container_memory_mb
+    expr: |-
+      sum by(broker) (
+        label_replace(
+          container_memory_usage_bytes{id=~"/docker/605abf4888ea3d2827bb56708745bc2557ad960fe4b1c2e5356617ad34188e1d"},
+          "broker", "kafka-1", "id", ".*"
+        )
+        or
+        label_replace(
+          container_memory_usage_bytes{id=~"/docker/53fc28123ff0cf346e605c7e9ef61c9871ae836fb23dabf086f813ee3bcee690"},
+          "broker", "kafka-2", "id", ".*"
+        )
+        or
+        label_replace(
+          container_memory_usage_bytes{id=~"/docker/c848dcef167d33033e6855901b85415c201339ceee32f2f48fcc61332ad70651"},
+          "broker", "kafka-3", "id", ".*"
+        )
+        or
+        label_replace(
+          container_memory_usage_bytes{container_label_com_docker_compose_service=~"kafka-[0-9]+"},
+          "broker", "$1", "container_label_com_docker_compose_service", "(kafka-[0-9]+)"
+        )
+        or
+        label_replace(
+          container_memory_usage_bytes{name=~"kafka-[0-9]+"},
+          "broker", "$1", "name", "(kafka-[0-9]+)"
+        )
+      ) / 1048576
+
+  - record: kafka_cluster_container_memory_gb
+    expr: |-
+      sum(
+        container_memory_usage_bytes{id=~"/docker/(605abf4888ea3d2827bb56708745bc2557ad960fe4b1c2e5356617ad34188e1d|53fc28123ff0cf346e605c7e9ef61c9871ae836fb23dabf086f813ee3bcee690|c848dcef167d33033e6855901b85415c201339ceee32f2f48fcc61332ad70651)"}
+        or
+        container_memory_usage_bytes{container_label_com_docker_compose_service=~"kafka-[0-9]+"}
+        or
+        container_memory_usage_bytes{name=~"kafka-[0-9]+"}
+      ) / 1073741824
