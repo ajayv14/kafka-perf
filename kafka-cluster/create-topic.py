@@ -17,21 +17,25 @@ def create_topics():
     bootstrap_servers = 'localhost:9092'
     replication_factor = 3
     
-    # Topic configurations (EOS guarantees)
-    topic_config = {
-        'min.insync.replicas': '2',
-        'retention.ms': '3600000'
+    # Shared topic configuration (EOS guarantees)
+    base_topic_config = {
+        'min.insync.replicas': '2'
     }
     
     # Define topics
     topics = [
         {
             'name': 'eos-topic',
-            'num_partitions': 12
+            'num_partitions': 12,
+            'topic_configs': {
+                **base_topic_config,
+                'retention.ms': '600000'
+            }
         },
         {
             'name': 'audit-topic',
-            'num_partitions': 3
+            'num_partitions': 3,
+            'topic_configs': base_topic_config
         }
     ]
     
@@ -49,7 +53,7 @@ def create_topics():
                 name=topic['name'],
                 num_partitions=topic['num_partitions'],
                 replication_factor=replication_factor,
-                topic_configs=topic_config
+                topic_configs=topic['topic_configs']
             )
             new_topics.append(new_topic)
         

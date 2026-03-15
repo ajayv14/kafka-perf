@@ -29,7 +29,7 @@ Using master script :
 
 
 # Start all services
-./docker-master.py up
+./docker-master.py up --create-topics --create-tables 
 
 # Check status
 ./docker-master.py status
