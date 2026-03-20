@@ -205,9 +205,11 @@ services:
   # MONITORING AGENTS
   # ============================================
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    image: gcr.io/cadvisor/cadvisor:latest
     container_name: cadvisor
     command:
+      - '--docker=unix:///docker.sock'
+      - '--containerd=/containerd.sock'
       - '--docker_only=true'
       - '--store_container_labels=false'
       - '--whitelisted_container_labels=com.docker.compose.service,com.docker.compose.project'
@@ -216,10 +218,11 @@ services:
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
+      - /var/run/docker.sock:/docker.sock:ro
+      - /run/containerd/containerd.sock:/containerd.sock:ro
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     privileged: true
     devices:
       - /dev/kmsg
