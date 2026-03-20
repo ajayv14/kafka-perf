@@ -157,6 +157,11 @@ class DockerComposeManager:
         if create_tables and (Service.SINK in ordered or service == Service.ALL):
             print()
             self.create_database_tables(wait_for_db=True)
+
+        # Refresh cAdvisor-backed Prometheus rules as the final setup step
+        if Service.MONITORING in ordered:
+            print()
+            self.refresh_kafka_cadvisor_ids(wait_for_services=True)
         
         return True
     
@@ -325,6 +330,48 @@ class DockerComposeManager:
             return False
         except Exception as e:
             print(f"❌ Error running table creation script: {e}")
+            return False
+
+    def refresh_kafka_cadvisor_ids(self, wait_for_services: bool = True):
+        """Refresh cAdvisor-backed recording rule container IDs after startup"""
+        monitoring_config = self.SERVICES[Service.MONITORING]
+        script_path = monitoring_config.path / "prometheus" / "refresh-kafka-cadvisor-ids.sh"
+
+        if not script_path.exists():
+            print(f"❌ Error: cAdvisor refresh script not found at {script_path}")
+            return False
+
+        if wait_for_services:
+            print("⏳ Waiting for Kafka and monitoring services to stabilize...")
+            time.sleep(5)
+
+        print("🔄 Refreshing Kafka cAdvisor IDs in Prometheus recording rules...\n")
+
+        try:
+            result = subprocess.run(
+                ["bash", str(script_path)],
+                cwd=str(monitoring_config.path),
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+
+            if result.stdout:
+                print(result.stdout)
+
+            if result.returncode == 0:
+                print("✅ cAdvisor IDs refreshed successfully!")
+                return True
+            else:
+                if result.stderr:
+                    print(f"❌ Error: {result.stderr}")
+                return False
+
+        except subprocess.TimeoutExpired:
+            print("❌ Error: cAdvisor ID refresh timed out")
+            return False
+        except Exception as e:
+            print(f"❌ Error running cAdvisor refresh script: {e}")
             return False
 
 
