@@ -1,29 +1,4 @@
 groups:
-- name: kafka_throughput
-  interval: 10s
-  rules:
-
-  - record: kafka_broker_bytes_in_kb_per_sec
-    expr: sum by(instance) (rate(kafka_broker_bytes_in_total[5m])) / 1024
-
-  - record: kafka_broker_bytes_out_kb_per_sec
-    expr: sum by(instance) (rate(kafka_broker_bytes_out_total[5m])) / 1024
-
-  - record: kafka_broker_throughput_kb_per_sec
-    expr: sum by(instance) (rate(kafka_broker_bytes_in_total[5m]) + rate(kafka_broker_bytes_out_total[5m])) / 1024
-
-  - record: kafka_cluster_bytes_in_kb_per_sec
-    expr: sum(rate(kafka_broker_bytes_in_total[5m])) / 1024
-
-  - record: kafka_cluster_bytes_out_kb_per_sec
-    expr: sum(rate(kafka_broker_bytes_out_total[5m])) / 1024
-
-  - record: kafka_cluster_throughput_bytes_per_sec
-    expr: sum(rate(kafka_broker_bytes_in_total[5m]) + rate(kafka_broker_bytes_out_total[5m]))
-
-  - record: kafka_cluster_messages_per_sec
-    expr: sum(rate(kafka_broker_messages_in_total[5m]))
-
   - name: kafka_throughput
     interval: 10s
     rules:
@@ -57,25 +32,24 @@ groups:
               "instance", "$1", "name", "(kafka-[0-9]+)"
             )
           )
-      
+
       - record: kafka_cluster_cpu_usage_percent
         expr: avg(kafka_broker_cpu_usage_percent)
-      
+
       # Broker memory metrics in MB
       - record: kafka_broker_heap_memory_mb
         expr: jvm_heap_used_bytes / 1024 / 1024
-  
-      
+
       - record: kafka_broker_heap_memory_usage_percent
         expr: (jvm_heap_used_bytes / jvm_heap_max_bytes) * 100
-      
+
       - record: kafka_broker_non_heap_memory_mb
         expr: jvm_non_heap_used_bytes / 1024 / 1024
-      
+
       # Cluster average memory usage
       - record: kafka_cluster_heap_memory_usage_percent
         expr: avg(kafka_broker_heap_memory_usage_percent)
-      
+
       # Heap memory max in MB
       - record: kafka_broker_heap_memory_max_mb
         expr: jvm_heap_max_bytes / 1024 / 1024
