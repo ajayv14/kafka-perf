@@ -1,6 +1,6 @@
 groups:
 - name: kafka_throughput
-  interval: 30s
+  interval: 10s
   rules:
 
   - record: kafka_broker_bytes_in_kb_per_sec
@@ -26,7 +26,7 @@ groups:
 
 
 - name: kafka_cpu
-  interval: 30s
+  interval: 10s
   rules:
 
   - record: kafka_broker_cpu_percent
@@ -66,7 +66,7 @@ groups:
 
 
 - name: kafka_container_memory
-  interval: 30s
+  interval: 10s
   rules:
 
   - record: kafka_broker_container_memory_mb
