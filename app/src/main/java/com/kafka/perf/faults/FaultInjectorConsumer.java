@@ -212,6 +212,7 @@ public class FaultInjectorConsumer {
             Connection conn = null;
             try {
                 conn = dbConfig.getConnection();
+                conn.setAutoCommit(false);
 
                 // Write batch (or subset) transactionally
                 writeBatchTransactionally(config, recordsToWrite, conn);
@@ -260,6 +261,9 @@ public class FaultInjectorConsumer {
             } finally {
                 if (conn != null) {
                     try {
+                        if (!conn.getAutoCommit()) {
+                            conn.setAutoCommit(true);
+                        }
                         conn.close();
                     } catch (SQLException e) {
                         logger.warn("Failed to close connection: {}", e.getMessage());
