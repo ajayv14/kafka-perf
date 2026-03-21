@@ -48,6 +48,7 @@ public class FaultInjectorWithAuditConsumer {
     private static long totalMessagesWritten  = 0;
     private static long totalPartialWrites    = 0;
     private static long totalWriteErrors      = 0;
+    private static boolean commitSafeOnShutdown = true;
 
     // Database configuration (initialized during startup)
     private static DBConfig       dbConfig       = null;
@@ -352,6 +353,8 @@ public class FaultInjectorWithAuditConsumer {
                 records.forEach(batch::add);
 
                 try {
+                    commitSafeOnShutdown = false;
+
                     boolean fullBatchWritten = processBatchTransactionally(config, consumer, batch);
 
                     if (fullBatchWritten && !config.enableAutoCommit) {
@@ -359,6 +362,8 @@ public class FaultInjectorWithAuditConsumer {
                         // processing the next batch. Use async if throughput is a concern.
                         consumer.commitSync();
                     }
+
+                    commitSafeOnShutdown = fullBatchWritten;
 
                     // Advance sequential fault scheduler by the number of consumed
                     // records for this poll so faults progress with configured gaps.
@@ -382,9 +387,11 @@ public class FaultInjectorWithAuditConsumer {
         } finally {
             // Final sync commit before closing (covers any buffered async commits)
             try {
-                if (!config.enableAutoCommit) {
+                if (!config.enableAutoCommit && commitSafeOnShutdown) {
                     consumer.commitSync();
                     logger.info("Final offset commit completed");
+                } else if (!config.enableAutoCommit) {
+                    logger.warn("Skipping final offset commit because the last processed batch was not fully written");
                 }
             } catch (Exception e) {
                 logger.warn("Failed to commit final offsets: {}", e.getMessage());

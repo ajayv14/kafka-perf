@@ -46,6 +46,7 @@ public class FaultInjectorConsumer {
     private static long totalMessagesWritten  = 0;
     private static long totalPartialWrites    = 0;
     private static long totalWriteErrors      = 0;
+    private static boolean commitSafeOnShutdown = true;
 
     // Database configuration (initialized during startup)
     private static DBConfig       dbConfig       = null;
@@ -352,6 +353,8 @@ public class FaultInjectorConsumer {
                 records.forEach(batch::add);
 
                 try {
+                    commitSafeOnShutdown = false;
+
                     // processBatchTransactionally returns true only when the FULL batch
                     // was written. Commit Kafka offsets only in that case.
                     // FIX: Kafka offsets are now committed after every successful full-batch
@@ -365,6 +368,8 @@ public class FaultInjectorConsumer {
                         // processing the next batch. Use async if throughput is a concern.
                         consumer.commitSync();
                     }
+
+                    commitSafeOnShutdown = fullBatchWritten;
 
                     // Advance sequential fault scheduler by the number of consumed
                     // records for this poll so faults progress F1 -> ... -> F6 with
@@ -389,9 +394,11 @@ public class FaultInjectorConsumer {
         } finally {
             // Final sync commit before closing (covers any buffered async commits)
             try {
-                if (!config.enableAutoCommit) {
+                if (!config.enableAutoCommit && commitSafeOnShutdown) {
                     consumer.commitSync();
                     logger.info("Final offset commit completed");
+                } else if (!config.enableAutoCommit) {
+                    logger.warn("Skipping final offset commit because the last processed batch was not fully written");
                 }
             } catch (Exception e) {
                 logger.warn("Failed to commit final offsets: {}", e.getMessage());
