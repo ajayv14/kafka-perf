@@ -146,7 +146,7 @@ public class FaultScheduler {
         for (FaultType type : FaultType.values()) {
             if (Boolean.parseBoolean(getOrEnv(shortName(type), shortName(type), props, "false"))) {
                 if (enabledFault != null) {
-                    throw new IllegalStateException("Only one of F1 to F6 can be set to true");
+                    throw new IllegalStateException("Only one of F1 to F4 can be set to true");
                 }
                 enabledFault = type;
             }
@@ -160,8 +160,6 @@ public class FaultScheduler {
             case F2_CRASH_AFTER_DB_COMMIT_BEFORE_ACK -> "F2";
             case F3_PARTIAL_BATCH_WRITES -> "F3";
             case F4_DB_CONTAINER_RESTART -> "F4";
-            case F5_SLOW_SINK_BACKPRESSURE -> "F5";
-            case F6_NETWORK_BOUNDARY_FAULT -> "F6";
         };
     }
 

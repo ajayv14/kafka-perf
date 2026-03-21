@@ -28,13 +28,11 @@ import com.kafka.perf.configs.KafkaConsumerConfig;
  * - UPSERT for idempotent writes (handles redelivery)
  * - Kafka offset management (commitSync/commitAsync)
  *
- * Supports 6 fault types:
+ * Supports 4 fault types:
  * - F1: Crash before database commit
  * - F2: Crash after database commit but before offset acknowledgment
  * - F3: Partial batch writes (write subset of records)
  * - F4: Database container restart
- * - F5: Slow sink backpressure
- * - F6: Network boundary fault
  */
 public class FaultInjectorConsumer {
 
@@ -334,25 +332,10 @@ public class FaultInjectorConsumer {
                 // FIX: increment totalMessagesConsumed — was never updated before
                 totalMessagesConsumed += records.count();
 
-                // F5: Slow sink backpressure
                 boolean shouldInjectF4 = faultScheduler != null
                         && faultScheduler.shouldInjectScheduled(FaultType.F4_DB_CONTAINER_RESTART);
                 if (shouldInjectF4) {
                     faultInjector.injectDeterministic(FaultType.F4_DB_CONTAINER_RESTART);
-                }
-
-                // F5: Slow sink backpressure
-                boolean shouldInjectF5 = faultScheduler != null
-                        && faultScheduler.shouldInjectScheduled(FaultType.F5_SLOW_SINK_BACKPRESSURE);
-                if (shouldInjectF5) {
-                    faultInjector.injectDeterministic(FaultType.F5_SLOW_SINK_BACKPRESSURE);
-                }
-
-                // F6: Network boundary fault
-                boolean shouldInjectF6 = faultScheduler != null
-                        && faultScheduler.shouldInjectScheduled(FaultType.F6_NETWORK_BOUNDARY_FAULT);
-                if (shouldInjectF6) {
-                    faultInjector.injectDeterministic(FaultType.F6_NETWORK_BOUNDARY_FAULT);
                 }
 
                 List<org.apache.kafka.clients.consumer.ConsumerRecord<String, String>> batch =

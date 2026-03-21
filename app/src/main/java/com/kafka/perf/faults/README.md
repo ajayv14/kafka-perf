@@ -16,8 +16,6 @@ This package implements deterministic fault injection for the Kafka → PostgreS
 - `F2_CRASH_AFTER_DB_COMMIT_BEFORE_ACK` — crash after DB commit, before Kafka offset commit.
 - `F3_PARTIAL_BATCH_WRITES` — write only part of a batch.
 - `F4_DB_CONTAINER_RESTART` — restart PostgreSQL container.
-- `F5_SLOW_SINK_BACKPRESSURE` — add sink-side delay.
-- `F6_NETWORK_BOUNDARY_FAULT` — add network-style latency.
 
 ## Configuration
 
@@ -27,8 +25,6 @@ Enable exactly one fault in `faults.properties` and set the delay:
 - `F2=false`
 - `F3=false`
 - `F4=false`
-- `F5=false`
-- `F6=false`
 - `fault.inject.after.minutes=1`
 
 Example:
@@ -43,8 +39,8 @@ This injects `F3_PARTIAL_BATCH_WRITES` once, two minutes after the consumer star
 For each poll batch:
 
 1. Poll records.
-2. Optional runtime faults before DB write loop:
-   - `F5`, `F6`
+2. Optional runtime fault before DB write loop:
+   - `F4`
 3. Transactional DB write path:
    - `F1` before DB commit.
    - `F3` may write subset only (offsets intentionally not committed).
