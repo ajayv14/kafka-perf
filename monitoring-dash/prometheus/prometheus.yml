@@ -61,3 +61,10 @@ scrape_configs:
         labels:
           broker_id: '3'
           instance: 'kafka-3'
+
+  # Audit outcomes exporter - business outcome metrics for Grafana
+  - job_name: 'audit-outcomes-exporter'
+    static_configs:
+      - targets: ['audit-outcomes-exporter:8085']
+        labels:
+          app: 'audit-outcomes-exporter'

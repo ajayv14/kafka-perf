@@ -163,6 +163,55 @@ java -cp target/kafka-perf-1.0.0.jar com.kafka.perf.audit.AuditAggregator
 - Replay is estimated by seeing the same deterministic batch fingerprint on a
   later `BATCH_READ`.
 
+## Audit Outcomes Exporter
+
+`AuditOutcomesExporter` consumes the final Kafka topic `audit.outcomes` and
+exposes Prometheus counters over HTTP for Prometheus and Grafana.
+
+### Environment Variables
+
+- `BOOTSTRAP_SERVERS` default: `localhost:9092`
+- `AUDIT_OUTCOMES_TOPIC` default: `audit.outcomes`
+- `GROUP_ID` default: `audit-outcomes-exporter`
+- `METRICS_PORT` default: `8085`
+
+### Run
+
+```bash
+cd app
+mvn clean package -DskipTests
+mvn dependency:copy-dependencies -DincludeScope=runtime
+
+export BOOTSTRAP_SERVERS=localhost:9092
+export AUDIT_OUTCOMES_TOPIC=audit.outcomes
+export METRICS_PORT=8085
+
+java -cp "target/classes:target/dependency/*" com.kafka.perf.audit.AuditOutcomesExporter
+```
+
+### Exported Prometheus Metrics
+
+- `audit_outcomes_total{outcome,consumer_group,source_topic}`
+- `audit_replay_count_total{consumer_group,source_topic}`
+- `audit_timeout_count_total{consumer_group,source_topic}`
+- `audit_partition_outcomes_total{outcome,consumer_group,source_topic,partition}`
+- `audit_batches_seen_total{consumer_group,source_topic}`
+
+### Prometheus Scrape Configuration
+
+Add a scrape target for the exporter in Prometheus. The repo default points to:
+
+```yaml
+- job_name: 'audit-outcomes-exporter'
+  static_configs:
+    - targets: ['audit-outcomes-exporter:8085']
+      labels:
+        app: 'audit-outcomes-exporter'
+```
+
+If the exporter runs on a different host, replace the target with the reachable
+host and port for its `/metrics` endpoint.
+
 ## Viewing Metrics From Final Topics
 
 The final topic to analyze is `audit.outcomes`. Each message represents a batch
@@ -192,12 +241,10 @@ Useful dimensions to group by:
 
 Practical ways to view them:
 
-- Kafka Streams or ksqlDB table over `audit.outcomes` for grouped counts by
-  outcome and time window
-- Kafka Connect sink to PostgreSQL, ClickHouse, or Elasticsearch, then Grafana
-  dashboards on top
-- Simple batch export from `audit.outcomes` into CSV or Parquet for offline
-  analysis used in the paper
+- Prometheus scraping `AuditOutcomesExporter`, then Grafana dashboards on top
+- Kafka Connect sink to PostgreSQL, ClickHouse, or Elasticsearch for deeper
+  offline analysis if needed
+- Simple batch export from `audit.outcomes` into CSV or Parquet for paper plots
 
 Suggested paper-ready metrics:
 
@@ -205,3 +252,16 @@ Suggested paper-ready metrics:
 - `replay_rate = REPLAY_OBSERVED / BATCH_READ`
 - `late_commit_ratio = LATE_COMMIT / ESTIMATED_FAILED`
 - per-partition replay concentration based on `partitionRanges`
+
+Example PromQL queries:
+
+- Total outcomes by type:
+  `sum by (outcome) (increase(audit_outcomes_total[5m]))`
+- Outcomes by topic:
+  `sum by (source_topic, outcome) (increase(audit_outcomes_total[5m]))`
+- Replay counts by consumer group:
+  `sum by (consumer_group) (increase(audit_replay_count_total[5m]))`
+- Replay concentration by partition:
+  `sum by (partition) (increase(audit_partition_outcomes_total{outcome="REPLAY_OBSERVED"}[15m]))`
+- Estimated failure rate:
+  `sum(increase(audit_outcomes_total{outcome="ESTIMATED_FAILED"}[15m])) / sum(increase(audit_batches_seen_total[15m]))`
