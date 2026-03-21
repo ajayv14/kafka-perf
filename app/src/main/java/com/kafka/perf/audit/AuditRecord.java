@@ -1,34 +1,23 @@
 package com.kafka.perf.audit;
 
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
-import java.time.Instant;
-import java.util.UUID;
-
 /**
- * Immutable payload published to the Kafka audit topic for each intercepted event.
+ * Immutable payload published to the Kafka audit topic for each intercepted
+ * event in the consumer pipeline.
  *
- * Two event types are produced (see AuditStage):
- *
- *   BATCH_READ       — emitted after poll() returns a non-empty batch.
- *                      Carries recordCount, offsetMin, offsetMax for that batch.
- *
- *   OFFSET_COMMITTED — emitted after commitSync() returns successfully.
- *                      Carries only the correlation eventId and metadata.
- *                      Offset detail is intentionally omitted: the matching
- *                      BATCH_READ record (joined on eventId) already holds it.
- *
- * Audit correlation
- * -----------------
- * A successful commit is confirmed by finding a BATCH_READ and OFFSET_COMMITTED
- * pair sharing the same eventId in the audit topic. A BATCH_READ with no matching
- * OFFSET_COMMITTED indicates the consumer crashed between poll and commit.
- *
- * JSON serialization/deserialization is handled via Jackson.
+ * BATCH_READ carries deterministic batch identity and per-partition offset
+ * ranges so replayed batches can be recognized across retries and restarts.
+ * OFFSET_COMMITTED reuses the same eventId and metadata.
  */
 public final class AuditRecord {
 
@@ -36,76 +25,90 @@ public final class AuditRecord {
         .registerModule(new JavaTimeModule())
         .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
-    public final String     eventId;       // shared key linking BATCH_READ <-> OFFSET_COMMITTED
+    public final String eventId;
     public final AuditStage stage;
-    public final String     consumerGroup;
-    public final String     sourceTopic;
-    public final Instant    timestamp;
-
-    // Populated for BATCH_READ only; -1 / 0 for OFFSET_COMMITTED
-    public final int        recordCount;
-    public final long       offsetMin;
-    public final long       offsetMax;
+    public final String consumerGroup;
+    public final String sourceTopic;
+    public final Instant timestamp;
+    public final int recordCount;
+    public final List<PartitionRange> partitionRanges;
 
     private AuditRecord(Builder b) {
-        this.eventId       = b.eventId;
-        this.stage         = b.stage;
+        this.eventId = b.eventId;
+        this.stage = b.stage;
         this.consumerGroup = b.consumerGroup;
-        this.sourceTopic   = b.sourceTopic;
-        this.timestamp     = b.timestamp;
-        this.recordCount   = b.recordCount;
-        this.offsetMin     = b.offsetMin;
-        this.offsetMax     = b.offsetMax;
+        this.sourceTopic = b.sourceTopic;
+        this.timestamp = b.timestamp;
+        this.recordCount = b.recordCount;
+        this.partitionRanges = List.copyOf(b.partitionRanges);
     }
-
-    // -------------------------------------------------------------------------
-    // Builder
-    // -------------------------------------------------------------------------
 
     public static Builder builder(AuditStage stage) {
         return new Builder(stage);
     }
 
-    public static final class Builder {
-        private final AuditStage stage;
-        private String  eventId       = UUID.randomUUID().toString();
-        private String  consumerGroup = "unknown";
-        private String  sourceTopic   = "unknown";
-        private Instant timestamp     = Instant.now();
-        private int     recordCount   = 0;
-        private long    offsetMin     = -1;
-        private long    offsetMax     = -1;
+    public static final class PartitionRange {
+        public final int partition;
+        public final long offsetMin;
+        public final long offsetMax;
+        public final int recordCount;
 
-        private Builder(AuditStage stage) { this.stage = stage; }
-
-        public Builder eventId(String v)       { this.eventId = v;       return this; }
-        public Builder consumerGroup(String v) { this.consumerGroup = v; return this; }
-        public Builder sourceTopic(String v)   { this.sourceTopic = v;   return this; }
-        public Builder timestamp(Instant v)    { this.timestamp = v;     return this; }
-        public Builder recordCount(int v)      { this.recordCount = v;   return this; }
-        public Builder offsetMin(long v)       { this.offsetMin = v;     return this; }
-        public Builder offsetMax(long v)       { this.offsetMax = v;     return this; }
-
-        public AuditRecord build() { return new AuditRecord(this); }
+        public PartitionRange(int partition, long offsetMin, long offsetMax, int recordCount) {
+            this.partition = partition;
+            this.offsetMin = offsetMin;
+            this.offsetMax = offsetMax;
+            this.recordCount = recordCount;
+        }
     }
 
-    // -------------------------------------------------------------------------
-    // Serialization / Deserialization — Jackson
-    // -------------------------------------------------------------------------
+    public static final class Builder {
+        private final AuditStage stage;
+        private String eventId = "";
+        private String consumerGroup = "unknown";
+        private String sourceTopic = "unknown";
+        private Instant timestamp = Instant.now();
+        private int recordCount = 0;
+        private List<PartitionRange> partitionRanges = List.of();
 
-    /**
-     * Serializes to JSON. BATCH_READ includes offset fields; OFFSET_COMMITTED omits
-     * them since the consumer joins on eventId to retrieve them from the paired record.
-     *
-     * BATCH_READ example:
-     *   {"eventId":"abc-123","stage":"BATCH_READ","consumerGroup":"perf-group",
-     *    "sourceTopic":"events","timestamp":"2025-01-15T10:30:00Z",
-     *    "recordCount":500,"offsetMin":1000,"offsetMax":1499}
-     *
-     * OFFSET_COMMITTED example:
-     *   {"eventId":"abc-123","stage":"OFFSET_COMMITTED","consumerGroup":"perf-group",
-     *    "sourceTopic":"events","timestamp":"2025-01-15T10:30:05Z"}
-     */
+        private Builder(AuditStage stage) {
+            this.stage = stage;
+        }
+
+        public Builder eventId(String v) {
+            this.eventId = v;
+            return this;
+        }
+
+        public Builder consumerGroup(String v) {
+            this.consumerGroup = v;
+            return this;
+        }
+
+        public Builder sourceTopic(String v) {
+            this.sourceTopic = v;
+            return this;
+        }
+
+        public Builder timestamp(Instant v) {
+            this.timestamp = v;
+            return this;
+        }
+
+        public Builder recordCount(int v) {
+            this.recordCount = v;
+            return this;
+        }
+
+        public Builder partitionRanges(List<PartitionRange> v) {
+            this.partitionRanges = new ArrayList<>(v);
+            return this;
+        }
+
+        public AuditRecord build() {
+            return new AuditRecord(this);
+        }
+    }
+
     public String toJson() {
         try {
             ObjectNode root = OBJECT_MAPPER.createObjectNode();
@@ -114,12 +117,17 @@ public final class AuditRecord {
             root.put("consumerGroup", consumerGroup);
             root.put("sourceTopic", sourceTopic);
             root.put("timestamp", timestamp.toString());
+            root.put("recordCount", recordCount);
 
-            // Offset fields are only meaningful for BATCH_READ
             if (stage == AuditStage.BATCH_READ) {
-                root.put("recordCount", recordCount);
-                root.put("offsetMin", offsetMin);
-                root.put("offsetMax", offsetMax);
+                ArrayNode partitions = root.putArray("partitionRanges");
+                for (PartitionRange range : partitionRanges) {
+                    ObjectNode child = partitions.addObject();
+                    child.put("partition", range.partition);
+                    child.put("offsetMin", range.offsetMin);
+                    child.put("offsetMax", range.offsetMax);
+                    child.put("recordCount", range.recordCount);
+                }
             }
 
             return OBJECT_MAPPER.writeValueAsString(root);
@@ -131,18 +139,31 @@ public final class AuditRecord {
     public static AuditRecord fromJson(String json) {
         try {
             JsonNode root = OBJECT_MAPPER.readTree(json);
-
             AuditStage stage = AuditStage.valueOf(requiredText(root, "stage"));
+
             Builder builder = AuditRecord.builder(stage)
                 .eventId(requiredText(root, "eventId"))
                 .consumerGroup(requiredText(root, "consumerGroup"))
                 .sourceTopic(requiredText(root, "sourceTopic"))
-                .timestamp(Instant.parse(requiredText(root, "timestamp")));
+                .timestamp(Instant.parse(requiredText(root, "timestamp")))
+                .recordCount(requiredInt(root, "recordCount"));
 
             if (stage == AuditStage.BATCH_READ) {
-                builder.recordCount(requiredInt(root, "recordCount"))
-                       .offsetMin(requiredLong(root, "offsetMin"))
-                       .offsetMax(requiredLong(root, "offsetMax"));
+                JsonNode partitionRangesNode = root.get("partitionRanges");
+                if (partitionRangesNode == null || !partitionRangesNode.isArray()) {
+                    throw new IllegalArgumentException("Missing required field: partitionRanges");
+                }
+
+                List<PartitionRange> ranges = new ArrayList<>();
+                for (JsonNode node : partitionRangesNode) {
+                    ranges.add(new PartitionRange(
+                        requiredInt(node, "partition"),
+                        requiredLong(node, "offsetMin"),
+                        requiredLong(node, "offsetMax"),
+                        requiredInt(node, "recordCount")
+                    ));
+                }
+                builder.partitionRanges(ranges);
             }
 
             return builder.build();
