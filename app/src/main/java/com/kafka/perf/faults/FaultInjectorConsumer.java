@@ -61,7 +61,7 @@ public class FaultInjectorConsumer {
         // Load fault configuration
         FaultConfig faultConfig = FaultConfig.load();
 
-        // Load fault scheduler for sequential injection with probability-based injection
+        // Load fault scheduler
         faultScheduler = FaultScheduler.load(faultConfig);
 
         logger.info("==== FaultInjector Sink Consumer ====");
@@ -335,6 +335,13 @@ public class FaultInjectorConsumer {
                 totalMessagesConsumed += records.count();
 
                 // F5: Slow sink backpressure
+                boolean shouldInjectF4 = faultScheduler != null
+                        && faultScheduler.shouldInjectScheduled(FaultType.F4_DB_CONTAINER_RESTART);
+                if (shouldInjectF4) {
+                    faultInjector.injectDeterministic(FaultType.F4_DB_CONTAINER_RESTART);
+                }
+
+                // F5: Slow sink backpressure
                 boolean shouldInjectF5 = faultScheduler != null
                         && faultScheduler.shouldInjectScheduled(FaultType.F5_SLOW_SINK_BACKPRESSURE);
                 if (shouldInjectF5) {
@@ -370,13 +377,6 @@ public class FaultInjectorConsumer {
                     }
 
                     commitSafeOnShutdown = fullBatchWritten;
-
-                    // Advance sequential fault scheduler by the number of consumed
-                    // records for this poll so faults progress F1 -> ... -> F6 with
-                    // configured break periods between windows.
-                    if (faultScheduler != null) {
-                        faultScheduler.incrementMessageCounter(records.count());
-                    }
 
                 } catch (SQLException e) {
                     // Transaction failed and rolled back — records will be re-consumed.

@@ -16,8 +16,7 @@ public class FaultInjector {
     }
 
     /**
-     * Deterministic injection path used by scheduled one-shot fault windows.
-     * Executes the fault action unconditionally.
+     * Executes the configured fault action.
      */
     public boolean injectDeterministic(FaultType type) {
 
