@@ -1,16 +1,15 @@
 package com.kafka.perf.baseline;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
-import java.util.UUID;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,12 +37,6 @@ import com.kafka.perf.configs.KafkaConsumerConfig;
 public class PostgresSinkConsumer {
 
     private static final Logger logger = LoggerFactory.getLogger(PostgresSinkConsumer.class);
-
-    // Statistics
-    private static long totalMessagesConsumed = 0;
-    private static long totalMessagesWritten = 0;
-    private static long totalWriteErrors = 0;
-    private static long lastLogTime = System.currentTimeMillis();
     
     // Database configuration (initialized during startup)
     private static DBConfig dbConfig = null;
@@ -56,6 +49,12 @@ public class PostgresSinkConsumer {
         logger.info("==== PostgreSQL Sink Consumer ====");
         logger.info("{}", config);
 
+        if (config.enableAutoCommit) {
+            throw new IllegalStateException(
+                    "PostgresSinkConsumer requires consumer.enable.auto.commit=false to avoid acknowledging unpersisted records");
+        }
+        PostgresSinkStats stats = new PostgresSinkStats();
+
         // Initialize database connection pool
         dbConfig = new DBConfig("PostgresSinkConsumer");
         dbConfig.initializeConnectionPool(config);
@@ -65,7 +64,7 @@ public class PostgresSinkConsumer {
             dbConfig.verifyDatabaseConnection(config);
 
             // Run consumer
-            runConsumer(config);
+            runConsumer(config, stats);
         } finally {
             // Cleanup: close connection pool
             dbConfig.close();
@@ -73,60 +72,9 @@ public class PostgresSinkConsumer {
     }
 
     /**
-     * Write message to PostgreSQL sink with retry logic
-     */
-    private static void writeToSink(KafkaConsumerConfig config, String topic, int partition, long offset, String key, String value) {
-        String eventId = UUID.randomUUID().toString();
-        String sql = String.format(
-            "INSERT INTO %s (event_id, kafka_topic, kafka_partition, kafka_offset, payload) VALUES (?, ?, ?, ?, ?)",
-            config.dbSinkTable
-        );
-
-        int maxRetries = 3;
-        int retryCount = 0;
-        long backoffMs = 50;
-
-        while (retryCount < maxRetries) {
-            try (Connection conn = dbConfig.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(sql)) {
-
-                stmt.setString(1, eventId);
-                stmt.setString(2, topic);
-                stmt.setInt(3, partition);
-                stmt.setLong(4, offset);
-                stmt.setString(5, value);
-
-                stmt.executeUpdate();
-                totalMessagesWritten++;
-                return; // Success
-
-            } catch (SQLException e) {
-                retryCount++;
-                if (retryCount >= maxRetries) {
-                    totalWriteErrors++;
-                    logger.error("[ERROR] Failed to write message (offset={}) after {} attempts: {}",
-                        offset, maxRetries, e.getMessage());
-                    return; // Give up
-                }
-                logger.warn("[WARN] Failed to write message (offset={}), attempt {}/{}: {}. Retrying...",
-                    offset, retryCount, maxRetries, e.getMessage());
-                try {
-                    Thread.sleep(backoffMs);
-                    backoffMs = Math.min(backoffMs * 2, 500);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    totalWriteErrors++;
-                    logger.error("[ERROR] Write interrupted (offset={}): {}", offset, ie.getMessage());
-                    return;
-                }
-            }
-        }
-    }
-
-    /**
      * Run the consumer loop - identical to BaselineConsumer but with PostgreSQL writes
      */
-    private static void runConsumer(KafkaConsumerConfig config) throws Exception {
+    private static void runConsumer(KafkaConsumerConfig config, PostgresSinkStats stats) throws Exception {
 
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, config.bootstrapServers);
@@ -155,9 +103,10 @@ public class PostgresSinkConsumer {
 
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
         consumer.subscribe(Collections.singletonList(config.topic));
+        PostgresSinkWriter sinkWriter = new PostgresSinkWriter(dbConfig, config, stats, logger);
 
         long lastCommitTime = System.currentTimeMillis();
-        long recordsInBatch = 0;
+        Map<TopicPartition, Long> persistedOffsets = new HashMap<>();
 
         logger.info("Started consuming from topic: {}", config.topic);
         logger.info("Consumer Group: {}", config.groupId);
@@ -170,41 +119,48 @@ public class PostgresSinkConsumer {
 
                 // Write each record to PostgreSQL
                 for (var record : records) {
-                    writeToSink(
-                        config,
+                    PostgresSinkWriteResult result = sinkWriter.write(
                         record.topic(),
                         record.partition(),
                         record.offset(),
                         record.key(),
                         record.value()
                     );
-                    totalMessagesConsumed++;
-                    recordsInBatch++;
+
+                    if (result != PostgresSinkWriteResult.SUCCESS) {
+                        KafkaCommitUtils.commitPersistedOffsetsSync(consumer, persistedOffsets);
+                        throw new IllegalStateException(String.format(
+                                "Stopping consumer after sink write failure for %s-%d@%d",
+                                record.topic(),
+                                record.partition(),
+                                record.offset()));
+                    }
+
+                    stats.recordConsumed();
+                    persistedOffsets.put(
+                            new TopicPartition(record.topic(), record.partition()),
+                            record.offset() + 1
+                    );
                 }
 
-                // Periodic async commit (non-blocking)
-                if (!config.enableAutoCommit &&
-                        System.currentTimeMillis() - lastCommitTime >= config.autoCommitIntervalMs) {
-                    consumer.commitAsync();
+                // Periodic synchronous commit so the sink/offset boundary is explicit
+                if (System.currentTimeMillis() - lastCommitTime >= config.autoCommitIntervalMs) {
+                    KafkaCommitUtils.commitPersistedOffsetsSync(consumer, persistedOffsets);
                     lastCommitTime = System.currentTimeMillis();
                 }
 
                 // Log statistics periodically
                 long currentTime = System.currentTimeMillis();
-                if (currentTime - lastLogTime >= (config.logIntervalSecs * 1000)) {
-                    logStatistics();
-                    lastLogTime = currentTime;
-                    recordsInBatch = 0;
+                if (currentTime - stats.getLastLogTime() >= (config.logIntervalSecs * 1000)) {
+                    logStatistics(stats, currentTime);
                 }
             }
         } finally {
             try {
-                if (!config.enableAutoCommit) {
-                    consumer.commitSync(); // final safe commit
-                }
+                KafkaCommitUtils.commitPersistedOffsetsSync(consumer, persistedOffsets);
             } finally {
                 consumer.close();
-                logStatistics();
+                logStatistics(stats, System.currentTimeMillis());
                 logger.info("Consumer closed gracefully");
             }
         }
@@ -213,19 +169,24 @@ public class PostgresSinkConsumer {
     /**
      * Log consumption and write statistics
      */
-    private static void logStatistics() {
-        long currentTime = System.currentTimeMillis();
-        double elapsedSecs = (currentTime - lastLogTime) / 1000.0;
-        double throughputMsgSec = totalMessagesConsumed > 0 ? totalMessagesConsumed / elapsedSecs : 0;
-        double writeThroughput = totalMessagesWritten > 0 ? totalMessagesWritten / elapsedSecs : 0;
+    private static void logStatistics(PostgresSinkStats stats, long currentTime) {
+        PostgresSinkStats.StatsSnapshot snapshot = stats.snapshot(currentTime);
 
-        logger.info("[{}] Consumed: {} | Written: {} | Write Errors: {} | Throughput: {:.2f} msg/sec | Write Rate: {:.2f} msg/sec",
+        logger.info(
+            "[{}] Total Consumed: {} | Total Written: {} | Write Errors: {} | Interval Consumed: {} | Interval Written: {} | Interval Throughput: {:.2f} msg/sec | Interval Write Rate: {:.2f} msg/sec | Lifetime Throughput: {:.2f} msg/sec | Lifetime Write Rate: {:.2f} msg/sec",
             System.currentTimeMillis(),
-            totalMessagesConsumed,
-            totalMessagesWritten,
-            totalWriteErrors,
-            throughputMsgSec,
-            writeThroughput
+            snapshot.totalConsumed,
+            snapshot.totalWritten,
+            snapshot.totalWriteErrors,
+            snapshot.intervalConsumed,
+            snapshot.intervalWritten,
+            snapshot.intervalConsumedRate,
+            snapshot.intervalWriteRate,
+            snapshot.lifetimeConsumedRate,
+            snapshot.lifetimeWriteRate
         );
+
+        stats.resetInterval();
+        stats.markLogTime(currentTime);
     }
 }
