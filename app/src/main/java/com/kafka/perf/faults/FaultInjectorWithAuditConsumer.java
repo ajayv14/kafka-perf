@@ -30,13 +30,11 @@ import com.kafka.perf.configs.KafkaConsumerConfig;
  * - UPSERT for idempotent writes (handles redelivery)
  * - Kafka offset management (commitSync/commitAsync)
  *
- * Supports 6 fault types:
+ * Supports 4 fault types:
  * - F1: Crash before database commit
  * - F2: Crash after database commit but before offset acknowledgment
  * - F3: Partial batch writes (write subset of records)
  * - F4: Database container restart
- * - F5: Slow sink backpressure
- * - F6: Network boundary fault
  */
 public class FaultInjectorWithAuditConsumer {
 
@@ -48,6 +46,7 @@ public class FaultInjectorWithAuditConsumer {
     private static long totalMessagesWritten  = 0;
     private static long totalPartialWrites    = 0;
     private static long totalWriteErrors      = 0;
+    private static boolean commitSafeOnShutdown = true;
 
     // Database configuration (initialized during startup)
     private static DBConfig       dbConfig       = null;
@@ -62,7 +61,7 @@ public class FaultInjectorWithAuditConsumer {
         // Load fault configuration
         FaultConfig faultConfig = FaultConfig.load();
 
-        // Load fault scheduler for sequential injection with probability-based injection
+        // Load fault scheduler
         faultScheduler = FaultScheduler.load(faultConfig);
 
         logger.info("==== FaultInjector Sink Consumer ====");
@@ -333,18 +332,10 @@ public class FaultInjectorWithAuditConsumer {
 
                 totalMessagesConsumed += records.count();
 
-                // F5: Slow sink backpressure
-                boolean shouldInjectF5 = faultScheduler != null
-                        && faultScheduler.shouldInjectScheduled(FaultType.F5_SLOW_SINK_BACKPRESSURE);
-                if (shouldInjectF5) {
-                    faultInjector.injectDeterministic(FaultType.F5_SLOW_SINK_BACKPRESSURE);
-                }
-
-                // F6: Network boundary fault
-                boolean shouldInjectF6 = faultScheduler != null
-                        && faultScheduler.shouldInjectScheduled(FaultType.F6_NETWORK_BOUNDARY_FAULT);
-                if (shouldInjectF6) {
-                    faultInjector.injectDeterministic(FaultType.F6_NETWORK_BOUNDARY_FAULT);
+                boolean shouldInjectF4 = faultScheduler != null
+                        && faultScheduler.shouldInjectScheduled(FaultType.F4_DB_CONTAINER_RESTART);
+                if (shouldInjectF4) {
+                    faultInjector.injectDeterministic(FaultType.F4_DB_CONTAINER_RESTART);
                 }
 
                 List<org.apache.kafka.clients.consumer.ConsumerRecord<String, String>> batch =
@@ -352,6 +343,8 @@ public class FaultInjectorWithAuditConsumer {
                 records.forEach(batch::add);
 
                 try {
+                    commitSafeOnShutdown = false;
+
                     boolean fullBatchWritten = processBatchTransactionally(config, consumer, batch);
 
                     if (fullBatchWritten && !config.enableAutoCommit) {
@@ -360,11 +353,7 @@ public class FaultInjectorWithAuditConsumer {
                         consumer.commitSync();
                     }
 
-                    // Advance sequential fault scheduler by the number of consumed
-                    // records for this poll so faults progress with configured gaps.
-                    if (faultScheduler != null) {
-                        faultScheduler.incrementMessageCounter(records.count());
-                    }
+                    commitSafeOnShutdown = fullBatchWritten;
 
                 } catch (SQLException e) {
                     // Transaction failed and rolled back — records will be re-consumed.
@@ -382,9 +371,11 @@ public class FaultInjectorWithAuditConsumer {
         } finally {
             // Final sync commit before closing (covers any buffered async commits)
             try {
-                if (!config.enableAutoCommit) {
+                if (!config.enableAutoCommit && commitSafeOnShutdown) {
                     consumer.commitSync();
                     logger.info("Final offset commit completed");
+                } else if (!config.enableAutoCommit) {
+                    logger.warn("Skipping final offset commit because the last processed batch was not fully written");
                 }
             } catch (Exception e) {
                 logger.warn("Failed to commit final offsets: {}", e.getMessage());

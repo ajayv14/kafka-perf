@@ -7,10 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Fault configuration loader for chaos engineering tests.
- * 
- * Simplified to only validate that faults.properties can be loaded.
- * Fault scheduling is now handled entirely by FaultScheduler.
+ * Loads faults.properties for the fault injection package.
  */
 public class FaultConfig {
 
@@ -21,9 +18,7 @@ public class FaultConfig {
     }
 
     /**
-     * Load fault configuration from faults.properties file
-     * @return FaultConfig instance
-     * @throws Exception if properties file cannot be loaded
+     * Loads faults.properties from the classpath.
      */
     public static FaultConfig load() throws Exception {
         try (InputStream is = FaultConfig.class.getResourceAsStream("/faults.properties")) {
@@ -44,6 +39,6 @@ public class FaultConfig {
 
     @Override
     public String toString() {
-        return "[FaultConfig] Fault scheduling configured via FaultScheduler";
+        return "[FaultConfig] Loaded faults.properties";
     }
 }

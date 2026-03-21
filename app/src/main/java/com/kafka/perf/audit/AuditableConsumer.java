@@ -1,11 +1,17 @@
 package com.kafka.perf.audit;
 
 import java.time.Duration;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
-import java.util.UUID;
 
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -24,7 +30,7 @@ import org.slf4j.LoggerFactory;
  * Pointcut 1 — BATCH_READ
  *   Fires after poll() returns a non-empty batch.
  *   Publishes: eventId, stage, consumerGroup, sourceTopic, timestamp,
- *              recordCount, offsetMin, offsetMax.
+ *              recordCount, partitionRanges.
  *
  * Pointcut 2 — OFFSET_COMMITTED
  *   Fires after commitSync() returns successfully (not on failure/exception).
@@ -51,6 +57,19 @@ import org.slf4j.LoggerFactory;
  * -------------
  * KafkaConsumer is not thread-safe and neither is this wrapper.
  * The same single-threaded usage contract applies.
+ *
+ * Supported execution model
+ * -------------------------
+ * This wrapper is intentionally narrow in scope. It is designed for consumers
+ * that execute the following sequence in a single thread:
+ *
+ *   1. poll() returns one batch
+ *   2. the application processes that batch synchronously
+ *   3. commitSync() is called once for that batch
+ *
+ * commitAsync() is delegated but not audited.
+ * Multi-commit flows, overlapping in-flight batches, and more complex offset
+ * management patterns are out of scope for this wrapper.
  */
 public class AuditableConsumer<K, V> extends KafkaConsumer<K, V> {
 
@@ -62,7 +81,8 @@ public class AuditableConsumer<K, V> extends KafkaConsumer<K, V> {
     private final AuditProducer       auditProducer;
 
     // The eventId is generated once per poll() and reused for the subsequent
-    // commitSync() — this is the correlation key that links the two audit events.
+    // commitSync(). This assumes one polled batch is processed synchronously and
+    // acknowledged once before the next audited batch lifecycle begins.
     private String currentBatchEventId = null;
 
     /**
@@ -96,29 +116,32 @@ public class AuditableConsumer<K, V> extends KafkaConsumer<K, V> {
         ConsumerRecords<K, V> records = delegate.poll(timeout);
 
         if (!records.isEmpty()) {
-            // Generate a fresh eventId for this batch.
-            // The same id will be stamped on the OFFSET_COMMITTED event after commitSync().
-            currentBatchEventId = UUID.randomUUID().toString();
-
-            long min = Long.MAX_VALUE;
-            long max = Long.MIN_VALUE;
+            Map<Integer, PartitionAccumulator> partitions = new HashMap<>();
             for (var record : records) {
-                if (record.offset() < min) min = record.offset();
-                if (record.offset() > max) max = record.offset();
+                partitions
+                    .computeIfAbsent(record.partition(), ignored -> new PartitionAccumulator(record.partition()))
+                    .accept(record.offset());
             }
+
+            List<AuditRecord.PartitionRange> partitionRanges = new ArrayList<>(partitions.size());
+            for (PartitionAccumulator accumulator : partitions.values()) {
+                partitionRanges.add(accumulator.toRange());
+            }
+            partitionRanges.sort(Comparator.comparingInt(range -> range.partition));
+
+            currentBatchEventId = fingerprintBatch(partitionRanges, records.count());
 
             AuditRecord auditRecord = AuditRecord.builder(AuditStage.BATCH_READ)
                 .eventId(currentBatchEventId)
                 .consumerGroup(consumerGroup)
                 .sourceTopic(sourceTopic)
                 .recordCount(records.count())
-                .offsetMin(min)
-                .offsetMax(max)
+                .partitionRanges(partitionRanges)
                 .build();
 
             auditProducer.send(auditRecord);
-            logger.debug("[AUDIT] BATCH_READ eventId={} count={} offsets=[{}-{}]",
-                currentBatchEventId, records.count(), min, max);
+            logger.debug("[AUDIT] BATCH_READ eventId={} count={} partitions={}",
+                currentBatchEventId, records.count(), partitionRanges.size());
         }
 
         return records;
@@ -196,16 +219,19 @@ public class AuditableConsumer<K, V> extends KafkaConsumer<K, V> {
 
     @Override
     public void commitAsync() {
+        logger.debug("[AUDIT] commitAsync() delegated without audit; commitAsync is out of scope");
         delegate.commitAsync();
     }
 
     @Override
     public void commitAsync(OffsetCommitCallback callback) {
+        logger.debug("[AUDIT] commitAsync(callback) delegated without audit; commitAsync is out of scope");
         delegate.commitAsync(callback);
     }
 
     @Override
     public void commitAsync(Map<TopicPartition, OffsetAndMetadata> offsets, OffsetCommitCallback callback) {
+        logger.debug("[AUDIT] commitAsync(offsets, callback) delegated without audit; commitAsync is out of scope");
         delegate.commitAsync(offsets, callback);
     }
 
@@ -268,5 +294,54 @@ public class AuditableConsumer<K, V> extends KafkaConsumer<K, V> {
         p.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
         p.put("group.id",           "__audit_dummy__");
         return p;
+    }
+
+    private String fingerprintBatch(List<AuditRecord.PartitionRange> partitionRanges, int recordCount) {
+        StringBuilder builder = new StringBuilder();
+        builder.append(consumerGroup).append('|')
+            .append(sourceTopic).append('|')
+            .append(recordCount);
+
+        for (AuditRecord.PartitionRange range : partitionRanges) {
+            builder.append('|')
+                .append(range.partition).append(':')
+                .append(range.offsetMin).append(':')
+                .append(range.offsetMax).append(':')
+                .append(range.recordCount);
+        }
+
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(builder.toString().getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16));
+                hex.append(Character.forDigit(b & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 not available", e);
+        }
+    }
+
+    private static final class PartitionAccumulator {
+        private final int partition;
+        private long offsetMin = Long.MAX_VALUE;
+        private long offsetMax = Long.MIN_VALUE;
+        private int recordCount = 0;
+
+        private PartitionAccumulator(int partition) {
+            this.partition = partition;
+        }
+
+        private void accept(long offset) {
+            offsetMin = Math.min(offsetMin, offset);
+            offsetMax = Math.max(offsetMax, offset);
+            recordCount++;
+        }
+
+        private AuditRecord.PartitionRange toRange() {
+            return new AuditRecord.PartitionRange(partition, offsetMin, offsetMax, recordCount);
+        }
     }
 }
