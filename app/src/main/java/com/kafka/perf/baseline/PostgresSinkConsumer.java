@@ -1,8 +1,10 @@
 package com.kafka.perf.baseline;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
@@ -117,26 +119,24 @@ public class PostgresSinkConsumer {
                 ConsumerRecords<String, String> records =
                         consumer.poll(Duration.ofMillis(config.pollTimeoutMs));
 
-                // Write each record to PostgreSQL
+                List<org.apache.kafka.clients.consumer.ConsumerRecord<String, String>> batch =
+                        new ArrayList<>();
+                for (var record : records.records(config.topic)) {
+                    batch.add(record);
+                }
                 for (var record : records) {
-                    PostgresSinkWriteResult result = sinkWriter.write(
-                        record.topic(),
-                        record.partition(),
-                        record.offset(),
-                        record.key(),
-                        record.value()
-                    );
-
-                    if (result != PostgresSinkWriteResult.SUCCESS) {
-                        KafkaCommitUtils.commitPersistedOffsetsSync(consumer, persistedOffsets);
-                        throw new IllegalStateException(String.format(
-                                "Stopping consumer after sink write failure for %s-%d@%d",
-                                record.topic(),
-                                record.partition(),
-                                record.offset()));
-                    }
-
                     stats.recordConsumed();
+                }
+
+                PostgresSinkWriteResult result = sinkWriter.writeBatch(batch);
+                if (result != PostgresSinkWriteResult.SUCCESS) {
+                    KafkaCommitUtils.commitPersistedOffsetsSync(consumer, persistedOffsets);
+                    throw new IllegalStateException(String.format(
+                            "Stopping consumer after sink write failure for polled batch from topic %s",
+                            config.topic));
+                }
+
+                for (var record : batch) {
                     persistedOffsets.put(
                             new TopicPartition(record.topic(), record.partition()),
                             record.offset() + 1
@@ -173,7 +173,7 @@ public class PostgresSinkConsumer {
         PostgresSinkStats.StatsSnapshot snapshot = stats.snapshot(currentTime);
 
         logger.info(
-            "[{}] Total Consumed: {} | Total Written: {} | Write Errors: {} | Interval Consumed: {} | Interval Written: {} | Interval Throughput: {:.2f} msg/sec | Interval Write Rate: {:.2f} msg/sec | Lifetime Throughput: {:.2f} msg/sec | Lifetime Write Rate: {:.2f} msg/sec",
+            "[{}] Total Consumed: {} | Total Written: {} | Write Errors: {} | Interval Consumed: {} | Interval Written: {} | Interval Throughput: {} msg/sec | Interval Write Rate: {} msg/sec | Lifetime Throughput: {} msg/sec | Lifetime Write Rate: {} msg/sec",
             System.currentTimeMillis(),
             snapshot.totalConsumed,
             snapshot.totalWritten,

@@ -62,6 +62,13 @@ scrape_configs:
           broker_id: '3'
           instance: 'kafka-3'
 
+  # Kafka exporter - consumer group lag metrics
+  - job_name: 'kafka-exporter'
+    static_configs:
+      - targets: ['kafka-exporter:9308']
+        labels:
+          app: 'kafka-exporter'
+
   # Audit outcomes exporter - business outcome metrics for Grafana
   - job_name: 'audit-outcomes-exporter'
     static_configs:
