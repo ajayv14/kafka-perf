@@ -20,7 +20,8 @@ EXPORT_ROOT = ROOT / "monitoring-dash" / "experiment_export" / "runs"
 
 QUERY_SPECS = {
     "cluster_messages_per_sec": "kafka_cluster_messages_per_sec",
-    "cluster_throughput_bytes_per_sec": "kafka_cluster_throughput_bytes_per_sec",
+    "cluster_bytes_in_kb_per_sec": "kafka_cluster_bytes_in_kb_per_sec",
+    "cluster_bytes_out_kb_per_sec": "kafka_cluster_bytes_out_kb_per_sec",
     "cluster_cpu_percent": "kafka_cluster_cpu_percent",
     "cluster_memory_gb": "kafka_cluster_container_memory_gb",
     "audit_committed_total": 'sum(audit_outcomes_total{outcome="COMMITTED"})',
