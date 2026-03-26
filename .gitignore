@@ -1,7 +1,13 @@
 # Python virtualenvs
 kafka-perf-venv/
+kafka-perf/
 venv/
+.venv/
 .env/
+
+# Python dependency artifacts
+**/site-packages/
+*.dist-info/
 
 # Python bytecode
 __pycache__/

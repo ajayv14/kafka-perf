@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import os
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -34,22 +35,36 @@ class ManagedProcess:
     process: subprocess.Popen
 
 
-def build_consumer_command() -> list[str]:
+def build_consumer_command(maven_cmd: list[str]) -> list[str]:
     return [
-        "mvn",
+        *maven_cmd,
         "-q",
         "exec:java",
         "-Dexec.mainClass=com.kafka.perf.baseline.PostgresSinkConsumer",
     ]
 
 
-def build_producer_command() -> list[str]:
+def build_producer_command(maven_cmd: list[str]) -> list[str]:
     return [
-        "mvn",
+        *maven_cmd,
         "-q",
         "exec:java",
         "-Dexec.mainClass=com.kafka.perf.baseline.BaselineProducer",
     ]
+
+
+def resolve_maven_command() -> list[str]:
+    """Return an available Maven command or fail with a clear message."""
+    mvnw = APP_DIR / "mvnw"
+    if mvnw.exists():
+        return [str(mvnw)]
+
+    if shutil.which("mvn"):
+        return ["mvn"]
+
+    raise RuntimeError(
+        "Maven executable not found. Install Maven (mvn) or add Maven Wrapper at app/mvnw."
+    )
 
 
 def start_process(name: str, command: list[str], env: dict[str, str]) -> ManagedProcess:
@@ -121,6 +136,12 @@ def main() -> int:
         print(f"app directory not found: {APP_DIR}", file=sys.stderr)
         return 1
 
+    try:
+        maven_cmd = resolve_maven_command()
+    except RuntimeError as err:
+        print(str(err), file=sys.stderr)
+        return 1
+
     managed: list[ManagedProcess] = []
     measured_start_ts: float | None = None
     measured_end_ts: float | None = None
@@ -166,7 +187,7 @@ def main() -> int:
             managed.append(
                 start_process(
                     f"consumer-{index + 1}",
-                    build_consumer_command(),
+                    build_consumer_command(maven_cmd),
                     consumer_env,
                 )
             )
@@ -174,7 +195,7 @@ def main() -> int:
 
         sleep_with_updates(args.consumer_warmup_secs, "after consumers start, before producer")
 
-        managed.append(start_process("producer", build_producer_command(), producer_env))
+        managed.append(start_process("producer", build_producer_command(maven_cmd), producer_env))
         measured_start_ts = time.time()
 
         sleep_with_updates(args.measured_window_secs, "measured run")
@@ -186,7 +207,7 @@ def main() -> int:
             measured_end_ts = measured_end_ts or time.time()
             if args.export_prometheus:
                 export_cmd = [
-                    "python3",
+                    sys.executable,
                     str(EXPORT_SCRIPT),
                     "--run-label",
                     args.run_label,
