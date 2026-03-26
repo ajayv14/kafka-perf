@@ -391,7 +391,7 @@
       },
       "gridPos": {
         "h": 7,
-        "w": 22,
+        "w": 14,
         "x": 0,
         "y": 7
       },
@@ -426,6 +426,108 @@
         }
       ],
       "title": "Kafka Cluster Consumer Lag",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "P1809F7CD0C75ACF3"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Memory (GB)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 9,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "max": 20,
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 14,
+        "y": 7
+      },
+      "id": 28,
+      "maxDataPoints": 500,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "axes": {
+          "x": {
+            "label": "Time"
+          }
+        }
+      },
+      "pluginVersion": "12.3.2+security-01",
+      "targets": [
+        {
+          "expr": "avg(kafka_cluster_container_memory_gb{ })",
+          "fromExploreMetrics": false,
+          "legendFormat": "memory",
+          "refId": "kafka_cluster_container_memory_gb-avg",
+          "interval": "1m"
+        }
+      ],
+      "title": "Kafka Cluster Container Memory (GB)",
       "type": "timeseries"
     }
   ],

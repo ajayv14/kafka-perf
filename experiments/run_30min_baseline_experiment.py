@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-Timed host-local experiment runner for the baseline PostgreSQL sink setup.
+Timed baseline experiment runner.
 
-Default schedule:
-- wait 2 minutes
+Schedule:
+- start docker-master services
+- wait 2 minutes for containers to stabilize
 - start 3 PostgresSinkConsumer processes
-- wait 3 more minutes
+- wait 2 more minutes
 - start BaselineProducer
-- run the measured window for 25 minutes
-- stop all child processes
+- stop the experiment after 30 minutes total from the end of infra startup
+
+Exports Prometheus metrics for the measured producer window by default.
 """
 
 from __future__ import annotations
@@ -23,8 +25,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / "app"
+DOCKER_MASTER = ROOT / "docker-master.py"
 EXPORT_SCRIPT = ROOT / "monitoring-dash" / "experiment_export" / "export_prometheus_run.py"
 
 
@@ -50,6 +53,12 @@ def build_producer_command() -> list[str]:
         "exec:java",
         "-Dexec.mainClass=com.kafka.perf.baseline.BaselineProducer",
     ]
+
+
+def run_command(command: list[str], cwd: Path) -> None:
+    result = subprocess.run(command, cwd=str(cwd), text=True)
+    if result.returncode != 0:
+        raise SystemExit(result.returncode)
 
 
 def start_process(name: str, command: list[str], env: dict[str, str]) -> ManagedProcess:
@@ -99,10 +108,10 @@ def sleep_with_updates(seconds: int, label: str) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run a timed baseline sink experiment.")
-    parser.add_argument("--initial-wait-secs", type=int, default=120)
-    parser.add_argument("--consumer-warmup-secs", type=int, default=180)
-    parser.add_argument("--measured-window-secs", type=int, default=1500)
+    parser = argparse.ArgumentParser(description="Run a timed 30-minute baseline experiment.")
+    parser.add_argument("--total-secs", type=int, default=1800)
+    parser.add_argument("--stabilize-secs", type=int, default=120)
+    parser.add_argument("--consumer-warmup-secs", type=int, default=120)
     parser.add_argument("--consumer-count", type=int, default=3)
     parser.add_argument("--group-id", default="baseline-sink-group")
     parser.add_argument("--topic", default="eos-topic")
@@ -112,10 +121,17 @@ def main() -> int:
     parser.add_argument("--postgres-password", default="eos")
     parser.add_argument("--shutdown-grace-secs", type=int, default=20)
     parser.add_argument("--export-prometheus", action="store_true", default=True)
+    parser.add_argument("--all-prometheus-metrics", action="store_true", default=True)
     parser.add_argument("--prom-url", default="http://localhost:9090")
     parser.add_argument("--prom-step-secs", type=int, default=10)
-    parser.add_argument("--run-label", default="baseline-run")
+    parser.add_argument("--run-label", default="baseline-30min")
+    parser.add_argument("--shutdown-infra", action="store_true")
     args = parser.parse_args()
+
+    measured_window_secs = args.total_secs - args.stabilize_secs - args.consumer_warmup_secs
+    if measured_window_secs <= 0:
+        print("total-secs must be greater than stabilize-secs + consumer-warmup-secs", file=sys.stderr)
+        return 2
 
     if not APP_DIR.exists():
         print(f"app directory not found: {APP_DIR}", file=sys.stderr)
@@ -124,10 +140,14 @@ def main() -> int:
     managed: list[ManagedProcess] = []
     measured_start_ts: float | None = None
     measured_end_ts: float | None = None
+    infra_started = False
 
     def cleanup() -> None:
         for proc in reversed(managed):
             stop_process(proc, args.shutdown_grace_secs)
+        if infra_started and args.shutdown_infra:
+            print("[infra] stopping docker stack")
+            run_command(["python3", str(DOCKER_MASTER), "down"], ROOT)
 
     def handle_signal(signum, _frame) -> None:
         print(f"[signal] received {signum}, stopping experiment")
@@ -148,19 +168,24 @@ def main() -> int:
             "POSTGRES_PASSWORD": args.postgres_password,
         }
     )
-
     producer_env = os.environ.copy()
 
-    total_window = args.initial_wait_secs + args.consumer_warmup_secs + args.measured_window_secs
     print("[experiment] baseline timed run")
-    print(f"[experiment] total wall-clock window: {total_window}s")
-    print(f"[experiment] initial idle wait: {args.initial_wait_secs}s")
+    print(f"[experiment] total wall-clock window: {args.total_secs}s")
+    print(f"[experiment] stabilization wait: {args.stabilize_secs}s")
     print(f"[experiment] consumer-only warmup: {args.consumer_warmup_secs}s")
-    print(f"[experiment] measured producer window: {args.measured_window_secs}s")
+    print(f"[experiment] measured producer window: {measured_window_secs}s")
     print(f"[experiment] consumer count: {args.consumer_count}")
 
     try:
-        sleep_with_updates(args.initial_wait_secs, "before starting consumers")
+        print("[infra] starting docker stack via docker-master.py")
+        run_command(
+            ["python3", str(DOCKER_MASTER), "up", "--create-topics", "--create-tables"],
+            ROOT,
+        )
+        infra_started = True
+
+        sleep_with_updates(args.stabilize_secs, "after docker stack start")
 
         for index in range(args.consumer_count):
             managed.append(
@@ -177,38 +202,39 @@ def main() -> int:
         managed.append(start_process("producer", build_producer_command(), producer_env))
         measured_start_ts = time.time()
 
-        sleep_with_updates(args.measured_window_secs, "measured run")
+        sleep_with_updates(measured_window_secs, "measured run")
         measured_end_ts = time.time()
         return 0
     finally:
         cleanup()
-        if measured_start_ts is not None:
+        if measured_start_ts is not None and args.export_prometheus:
             measured_end_ts = measured_end_ts or time.time()
-            if args.export_prometheus:
-                export_cmd = [
-                    "python3",
-                    str(EXPORT_SCRIPT),
-                    "--run-label",
-                    args.run_label,
-                    "--start-ts",
-                    str(measured_start_ts),
-                    "--end-ts",
-                    str(measured_end_ts),
-                    "--prom-url",
-                    args.prom_url,
-                    "--step-secs",
-                    str(args.prom_step_secs),
-                ]
-                print("[export] exporting Prometheus metrics for measured window")
-                result = subprocess.run(export_cmd, cwd=str(ROOT), text=True, capture_output=True)
-                if result.returncode == 0:
-                    print(f"[export] metrics saved to {result.stdout.strip()}")
-                else:
-                    print("[export] metrics export failed")
-                    if result.stdout.strip():
-                        print(result.stdout.strip())
-                    if result.stderr.strip():
-                        print(result.stderr.strip(), file=sys.stderr)
+            export_cmd = [
+                "python3",
+                str(EXPORT_SCRIPT),
+                "--run-label",
+                args.run_label,
+                "--start-ts",
+                str(measured_start_ts),
+                "--end-ts",
+                str(measured_end_ts),
+                "--prom-url",
+                args.prom_url,
+                "--step-secs",
+                str(args.prom_step_secs),
+            ]
+            if args.all_prometheus_metrics:
+                export_cmd.append("--all-metrics")
+            print("[export] exporting Prometheus metrics for measured window")
+            result = subprocess.run(export_cmd, cwd=str(ROOT), text=True, capture_output=True)
+            if result.returncode == 0:
+                print(f"[export] metrics saved to {result.stdout.strip()}")
+            else:
+                print("[export] metrics export failed")
+                if result.stdout.strip():
+                    print(result.stdout.strip())
+                if result.stderr.strip():
+                    print(result.stderr.strip(), file=sys.stderr)
 
 
 if __name__ == "__main__":

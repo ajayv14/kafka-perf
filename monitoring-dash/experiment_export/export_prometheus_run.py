@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
 import time
 import urllib.parse
@@ -15,7 +16,7 @@ import urllib.request
 from pathlib import Path
 
 
-ROOT = Path("/Users/ajay/Workspace/kafka-perf")
+ROOT = Path(__file__).resolve().parents[2]
 EXPORT_ROOT = ROOT / "monitoring-dash" / "experiment_export" / "runs"
 
 QUERY_SPECS = {
@@ -30,6 +31,16 @@ QUERY_SPECS = {
     "audit_late_commit_total": 'sum(audit_outcomes_total{outcome="LATE_COMMIT"})',
     "audit_batches_seen_total": "sum(audit_batches_seen_total)",
 }
+
+
+def prom_query(base_url: str, query: str) -> dict:
+    params = urllib.parse.urlencode({"query": query})
+    url = f"{base_url.rstrip('/')}/api/v1/query?{params}"
+    with urllib.request.urlopen(url, timeout=60) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if payload.get("status") != "success":
+        raise RuntimeError(f"Prometheus instant query failed for {query}: {payload}")
+    return payload
 
 
 def prom_query_range(base_url: str, query: str, start_ts: float, end_ts: float, step: int) -> dict:
@@ -65,7 +76,42 @@ def write_csv(path: Path, payload: dict) -> None:
                 writer.writerow([series_name, timestamp, value])
 
 
-def export_run(run_label: str, start_ts: float, end_ts: float, prom_url: str, step: int) -> Path:
+def sanitize_filename(name: str) -> str:
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._")
+    return sanitized or "metric"
+
+
+def fetch_all_metric_names(prom_url: str) -> list[str]:
+    payload = prom_query(prom_url, "label_values(__name__)")
+    result = payload.get("data", {}).get("result", [])
+    return sorted(name for name in result if isinstance(name, str) and name)
+
+
+def export_query_set(
+        out_dir: Path,
+        queries: dict[str, str],
+        prom_url: str,
+        start_ts: float,
+        end_ts: float,
+        step: int) -> None:
+    (out_dir / "promql.txt").write_text(
+        "\n".join(f"{name} = {query}" for name, query in queries.items()) + "\n",
+        encoding="utf-8",
+    )
+
+    for name, query in queries.items():
+        payload = prom_query_range(prom_url, query, start_ts, end_ts, step)
+        write_json(out_dir / f"{name}.json", payload)
+        write_csv(out_dir / f"{name}.csv", payload)
+
+
+def export_run(
+        run_label: str,
+        start_ts: float,
+        end_ts: float,
+        prom_url: str,
+        step: int,
+        export_all_metrics: bool = False) -> Path:
     timestamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(end_ts))
     out_dir = EXPORT_ROOT / f"{run_label}-{timestamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -77,17 +123,20 @@ def export_run(run_label: str, start_ts: float, end_ts: float, prom_url: str, st
         "prometheus_url": prom_url,
         "step_seconds": step,
         "queries": QUERY_SPECS,
+        "export_all_metrics": export_all_metrics,
     }
     write_json(out_dir / "metadata.json", metadata)
-    (out_dir / "promql.txt").write_text(
-        "\n".join(f"{name} = {query}" for name, query in QUERY_SPECS.items()) + "\n",
-        encoding="utf-8",
-    )
+    selected_dir = out_dir / "selected"
+    selected_dir.mkdir(exist_ok=True)
+    export_query_set(selected_dir, QUERY_SPECS, prom_url, start_ts, end_ts, step)
 
-    for name, query in QUERY_SPECS.items():
-        payload = prom_query_range(prom_url, query, start_ts, end_ts, step)
-        write_json(out_dir / f"{name}.json", payload)
-        write_csv(out_dir / f"{name}.csv", payload)
+    if export_all_metrics:
+        metric_names = fetch_all_metric_names(prom_url)
+        all_queries = {sanitize_filename(name): name for name in metric_names}
+        all_dir = out_dir / "all_metrics"
+        all_dir.mkdir(exist_ok=True)
+        write_json(all_dir / "metric_names.json", {"metric_names": metric_names})
+        export_query_set(all_dir, all_queries, prom_url, start_ts, end_ts, step)
 
     return out_dir
 
@@ -99,13 +148,21 @@ def main() -> int:
     parser.add_argument("--end-ts", type=float, required=True)
     parser.add_argument("--prom-url", default="http://localhost:9090")
     parser.add_argument("--step-secs", type=int, default=10)
+    parser.add_argument("--all-metrics", action="store_true")
     args = parser.parse_args()
 
     if args.end_ts <= args.start_ts:
         print("end-ts must be greater than start-ts", file=sys.stderr)
         return 2
 
-    out_dir = export_run(args.run_label, args.start_ts, args.end_ts, args.prom_url, args.step_secs)
+    out_dir = export_run(
+        args.run_label,
+        args.start_ts,
+        args.end_ts,
+        args.prom_url,
+        args.step_secs,
+        export_all_metrics=args.all_metrics,
+    )
     print(out_dir)
     return 0
 

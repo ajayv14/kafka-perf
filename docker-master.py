@@ -40,23 +40,24 @@ class ServiceConfig:
 
 class DockerComposeManager:
     """Manages docker-compose operations across multiple services"""
-    
+    ROOT = Path(__file__).resolve().parent
+
     # Service configurations
     SERVICES = {
         Service.KAFKA: ServiceConfig(
             name="Kafka Cluster",
-            path="/Users/ajay/Workspace/kafka-perf/kafka-cluster",
+            path=str(ROOT / "kafka-cluster"),
             compose_file="docker-compose-kafka-cluster.yml"
         ),
         Service.MONITORING: ServiceConfig(
             name="Monitoring Dashboard",
-            path="/Users/ajay/Workspace/kafka-perf/monitoring-dash",
+            path=str(ROOT / "monitoring-dash"),
             compose_file="docker-compose-monitoring.yml",
             depends_on=[Service.KAFKA.value]
         ),
         Service.SINK: ServiceConfig(
             name="Sink (PostgreSQL)",
-            path="/Users/ajay/Workspace/kafka-perf/sink",
+            path=str(ROOT / "sink"),
             compose_file="docker-sink-compose.yml",
             depends_on=[Service.KAFKA.value]
         ),
