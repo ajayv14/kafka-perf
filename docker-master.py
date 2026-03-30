@@ -9,10 +9,10 @@ import sys
 import subprocess
 import time
 import argparse
+import shutil
 from pathlib import Path
 from typing import Optional, List
 from enum import Enum
-from distutils.spawn import find_executable
 
 
 class Service(Enum):
@@ -40,23 +40,24 @@ class ServiceConfig:
 
 class DockerComposeManager:
     """Manages docker-compose operations across multiple services"""
-    
+    ROOT = Path(__file__).resolve().parent
+
     # Service configurations
     SERVICES = {
         Service.KAFKA: ServiceConfig(
             name="Kafka Cluster",
-            path="/Users/ajay/Workspace/kafka-perf/kafka-cluster",
+            path=str(ROOT / "kafka-cluster"),
             compose_file="docker-compose-kafka-cluster.yml"
         ),
         Service.MONITORING: ServiceConfig(
             name="Monitoring Dashboard",
-            path="/Users/ajay/Workspace/kafka-perf/monitoring-dash",
+            path=str(ROOT / "monitoring-dash"),
             compose_file="docker-compose-monitoring.yml",
             depends_on=[Service.KAFKA.value]
         ),
         Service.SINK: ServiceConfig(
             name="Sink (PostgreSQL)",
-            path="/Users/ajay/Workspace/kafka-perf/sink",
+            path=str(ROOT / "sink"),
             compose_file="docker-sink-compose.yml",
             depends_on=[Service.KAFKA.value]
         ),
@@ -64,7 +65,25 @@ class DockerComposeManager:
     
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
+        self.compose_cmd = self._detect_compose_command()
         self._validate_services()
+
+    def _detect_compose_command(self) -> str:
+        """Detect available Docker Compose command variant"""
+        if shutil.which("docker-compose"):
+            return "docker-compose"
+
+        if shutil.which("docker"):
+            result = subprocess.run(
+                ["docker", "compose", "version"],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                return "docker compose"
+
+        print("❌ Error: Docker Compose not found. Install 'docker-compose' or Docker Compose v2 ('docker compose').")
+        sys.exit(1)
     
     def _validate_services(self):
         """Validate that all compose files exist"""
@@ -108,7 +127,7 @@ class DockerComposeManager:
     
     def _run_command(self, config: ServiceConfig, command: str) -> bool:
         """Run a docker-compose command"""
-        cmd = f"docker-compose -f {config.compose_file} {command}"
+        cmd = f"{self.compose_cmd} -f {config.compose_file} {command}"
         
         if self.verbose:
             print(f"📋 Running in {config.path}:")
@@ -192,7 +211,7 @@ class DockerComposeManager:
         for svc, config in self.SERVICES.items():
             cmd = "ps --format table"
             result = subprocess.run(
-                f"docker-compose -f {config.compose_file} {cmd}",
+                f"{self.compose_cmd} -f {config.compose_file} {cmd}",
                 shell=True,
                 cwd=str(config.path),
                 capture_output=True,
@@ -263,7 +282,7 @@ class DockerComposeManager:
         
         try:
             result = subprocess.run(
-                ["python3", str(script_path)],
+                [sys.executable, str(script_path)],
                 cwd=str(kafka_config.path),
                 capture_output=True,
                 text=True,
@@ -306,7 +325,7 @@ class DockerComposeManager:
         
         try:
             result = subprocess.run(
-                ["python3", str(script_path)],
+                [sys.executable, str(script_path)],
                 cwd=str(sink_config.path),
                 capture_output=True,
                 text=True,
