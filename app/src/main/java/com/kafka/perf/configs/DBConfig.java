@@ -36,7 +36,9 @@ public class DBConfig {
         hikariConfig.setJdbcUrl(config.dbUrl);
         hikariConfig.setUsername(config.dbUser);
         hikariConfig.setPassword(config.dbPassword);
-        
+        hikariConfig.addDataSourceProperty("reWriteBatchedInserts", "true");
+        hikariConfig.addDataSourceProperty("prepareThreshold", "0");
+
         // Connection pool settings
         hikariConfig.setMaximumPoolSize(config.dbConnectionPoolSize);
         hikariConfig.setMinimumIdle(2); // Keep minimum 2 idle connections

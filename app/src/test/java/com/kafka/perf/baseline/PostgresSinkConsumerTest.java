@@ -1,7 +1,9 @@
 package com.kafka.perf.baseline;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -74,5 +76,35 @@ public class PostgresSinkConsumerTest {
         assertEquals(0L, snapshot.totalWriteErrors);
         assertEquals(0L, snapshot.intervalConsumed);
         assertEquals(0L, snapshot.intervalWritten);
+    }
+
+    @Test
+    public void splitIntoChunksHonorsConfiguredBatchSize() {
+        ArrayList<Integer> records = new ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            records.add(i);
+        }
+
+        var chunks = PostgresSinkWriter.splitIntoChunks(records, 3);
+
+        assertEquals(3, chunks.size());
+        assertEquals(3, chunks.get(0).size());
+        assertEquals(3, chunks.get(1).size());
+        assertEquals(1, chunks.get(2).size());
+        assertTrue(chunks.get(0).contains(0));
+        assertTrue(chunks.get(2).contains(6));
+    }
+
+    @Test
+    public void splitIntoChunksTreatsNonPositiveBatchSizeAsOne() {
+        ArrayList<Integer> records = new ArrayList<>();
+        records.add(1);
+        records.add(2);
+
+        var chunks = PostgresSinkWriter.splitIntoChunks(records, 0);
+
+        assertEquals(2, chunks.size());
+        assertEquals(1, chunks.get(0).size());
+        assertEquals(1, chunks.get(1).size());
     }
 }

@@ -3,6 +3,7 @@ package com.kafka.perf.baseline;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -40,16 +41,18 @@ final class PostgresSinkWriter {
                 conn.setAutoCommit(false);
 
                 try (PreparedStatement stmt = conn.prepareStatement(insertSql())) {
-                    for (ConsumerRecord<String, String> record : records) {
-                        stmt.setString(1, UUID.randomUUID().toString());
-                        stmt.setString(2, record.topic());
-                        stmt.setInt(3, record.partition());
-                        stmt.setLong(4, record.offset());
-                        stmt.setString(5, record.value());
-                        stmt.addBatch();
+                    for (List<ConsumerRecord<String, String>> chunk : splitIntoChunks(records, config.dbWriteBatchSize)) {
+                        for (ConsumerRecord<String, String> record : chunk) {
+                            stmt.setString(1, UUID.randomUUID().toString());
+                            stmt.setString(2, record.topic());
+                            stmt.setInt(3, record.partition());
+                            stmt.setLong(4, record.offset());
+                            stmt.setString(5, record.value());
+                            stmt.addBatch();
+                        }
+                        stmt.executeBatch();
+                        stmt.clearBatch();
                     }
-
-                    stmt.executeBatch();
                     conn.commit();
                 } catch (SQLException e) {
                     rollbackQuietly(conn);
@@ -108,6 +111,16 @@ final class PostgresSinkWriter {
                 "INSERT INTO %s (event_id, kafka_topic, kafka_partition, kafka_offset, payload) VALUES (?, ?, ?, ?, ?)",
                 config.dbSinkTable
         );
+    }
+
+    static <T> List<List<T>> splitIntoChunks(List<T> records, int chunkSize) {
+        int effectiveChunkSize = Math.max(1, chunkSize);
+        List<List<T>> chunks = new ArrayList<>();
+        for (int start = 0; start < records.size(); start += effectiveChunkSize) {
+            int end = Math.min(start + effectiveChunkSize, records.size());
+            chunks.add(records.subList(start, end));
+        }
+        return chunks;
     }
 
     private void rollbackQuietly(Connection conn) {
