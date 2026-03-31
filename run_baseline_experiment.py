@@ -128,7 +128,7 @@ def main() -> int:
     parser.add_argument("--shutdown-grace-secs", type=int, default=20)
     parser.add_argument("--export-prometheus", action="store_true", default=True)
     parser.add_argument("--prom-url", default="http://localhost:9090")
-    parser.add_argument("--prom-step-secs", type=int, default=10)
+    parser.add_argument("--prom-step-secs", type=int, default=5)
     parser.add_argument("--run-label", default="baseline-run")
     args = parser.parse_args()
 
