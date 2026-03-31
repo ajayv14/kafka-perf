@@ -3,9 +3,9 @@
 # Replace <KAFKA_MACHINE_IP> with your actual Kafka machine IP address
 
 global:
-  scrape_interval: 10s
-  scrape_timeout: 8s
-  evaluation_interval: 10s
+  scrape_interval: 5s
+  scrape_timeout: 4s
+  evaluation_interval: 5s
   external_labels:
     cluster: 'kafka-research'
     environment: 'production'
