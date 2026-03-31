@@ -143,7 +143,7 @@ docker-compose -f docker-compose-baseline.yml up -d --scale consumer=3
 ## Package Notes
 
 - `BaselineConsumer` polls continuously and does not do application-level processing. It is appropriate as a low-overhead consumer baseline, not as an end-to-end correctness harness.
-- `PostgresSinkConsumer` writes one row per message using a pooled JDBC connection and per-record `INSERT`.
+- `PostgresSinkConsumer` writes one row per message using a pooled JDBC connection and JDBC batched `INSERT`s, split by `postgres.write.batch.size`.
 - The sink consumer requires `consumer.enable.auto.commit=false` and commits only explicitly persisted offsets with `commitSync(...)`.
 - The synchronous commit path is intentional for paper measurements: it avoids the ambiguity of `commitAsync(...)` when comparing baseline, transactions-enabled, and transactions-plus-audit runs.
 - The sink consumer is still not a strict end-to-end exactly-once sink for PostgreSQL. It is a controlled external-sink benchmark with clearer commit semantics at the Kafka boundary.
