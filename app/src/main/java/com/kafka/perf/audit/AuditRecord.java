@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -53,7 +55,12 @@ public final class AuditRecord {
         public final long offsetMax;
         public final int recordCount;
 
-        public PartitionRange(int partition, long offsetMin, long offsetMax, int recordCount) {
+        @JsonCreator
+        public PartitionRange(
+                @JsonProperty("partition") int partition,
+                @JsonProperty("offsetMin") long offsetMin,
+                @JsonProperty("offsetMax") long offsetMax,
+                @JsonProperty("recordCount") int recordCount) {
             this.partition = partition;
             this.offsetMin = offsetMin;
             this.offsetMax = offsetMax;
