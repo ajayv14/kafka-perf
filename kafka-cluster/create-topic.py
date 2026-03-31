@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Script to create Kafka topics with specific configuration.
-Creates 'eos-topic' with 12 partitions and 'audit-topic' with 3 partitions.
+Creates 'eos-topic' with 12 partitions and audit topics with 3 partitions.
 Both with replication factor of 3 and same EOS guarantees.
 """
 
@@ -11,7 +11,7 @@ from kafka.errors import TopicAlreadyExistsError
 
 
 def create_topics():
-    """Create the eos-topic and audit-topic with configured settings."""
+    """Create the eos-topic and audit topics with configured settings."""
     
     # Configuration
     bootstrap_servers = 'localhost:9092'
@@ -34,6 +34,11 @@ def create_topics():
         },
         {
             'name': 'audit-topic',
+            'num_partitions': 3,
+            'topic_configs': base_topic_config
+        },
+        {
+            'name': 'audit.outcomes',
             'num_partitions': 3,
             'topic_configs': base_topic_config
         }
