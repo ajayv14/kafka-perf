@@ -22,6 +22,31 @@ services:
       - kafka-network
 
   # ============================================
+  # AUDIT OUTCOMES EXPORTER
+  # ============================================
+  audit-outcomes-exporter:
+    image: maven:3.9.9-eclipse-temurin-17
+    container_name: audit-outcomes-exporter
+    restart: unless-stopped
+    working_dir: /workspace/app
+    environment:
+      - BOOTSTRAP_SERVERS=kafka-1:29092
+      - AUDIT_OUTCOMES_TOPIC=audit.outcomes
+      - GROUP_ID=audit-outcomes-exporter
+      - METRICS_PORT=8085
+      - AUTO_OFFSET_RESET=earliest
+    ports:
+      - "8085:8085"
+    volumes:
+      - ../app:/workspace/app
+      - audit-outcomes-m2:/root/.m2
+    command: >
+      sh -lc "mvn -q -DskipTests compile dependency:copy-dependencies -DincludeScope=runtime &&
+      java -cp 'target/classes:target/dependency/*' com.kafka.perf.audit.AuditOutcomesExporter"
+    networks:
+      - kafka-network
+
+  # ============================================
   # PROMETHEUS (Metrics collection & storage)
   # ============================================
   prometheus:
@@ -44,6 +69,7 @@ services:
       - kafka-network
     depends_on:
       - kafka-exporter
+      - audit-outcomes-exporter
 
   # ============================================
   # GRAFANA (Visualization)
@@ -72,6 +98,8 @@ volumes:
   prometheus-data:
     driver: local
   grafana-data:
+    driver: local
+  audit-outcomes-m2:
     driver: local
 
 networks:

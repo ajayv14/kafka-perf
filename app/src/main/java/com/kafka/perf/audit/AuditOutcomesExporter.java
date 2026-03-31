@@ -53,14 +53,15 @@ public class AuditOutcomesExporter {
     private static KafkaConsumer<String, String> buildConsumer(
             String bootstrapServers,
             String groupId,
-            String topic) {
+            String topic,
+            String autoOffsetReset) {
 
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, autoOffsetReset);
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true");
 
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
@@ -73,15 +74,16 @@ public class AuditOutcomesExporter {
         String topic = System.getenv().getOrDefault("AUDIT_OUTCOMES_TOPIC", "audit.outcomes");
         String groupId = System.getenv().getOrDefault("GROUP_ID", "audit-outcomes-exporter");
         int metricsPort = Integer.parseInt(System.getenv().getOrDefault("METRICS_PORT", "8085"));
+        String autoOffsetReset = System.getenv().getOrDefault("AUTO_OFFSET_RESET", "earliest");
 
         CollectorRegistry registry = CollectorRegistry.defaultRegistry;
         AuditOutcomesMetrics metrics = new AuditOutcomesMetrics(registry);
-        KafkaConsumer<String, String> consumer = buildConsumer(bootstrapServers, groupId, topic);
+        KafkaConsumer<String, String> consumer = buildConsumer(bootstrapServers, groupId, topic, autoOffsetReset);
         HTTPServer httpServer = new HTTPServer(new InetSocketAddress(metricsPort), registry, true);
         AuditOutcomesExporter exporter = new AuditOutcomesExporter(consumer, metrics);
 
-        logger.info("AuditOutcomesExporter started topic={} bootstrapServers={} metricsPort={}",
-            topic, bootstrapServers, metricsPort);
+        logger.info("AuditOutcomesExporter started topic={} bootstrapServers={} metricsPort={} autoOffsetReset={}",
+            topic, bootstrapServers, metricsPort, autoOffsetReset);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             logger.info("Shutting down AuditOutcomesExporter...");
