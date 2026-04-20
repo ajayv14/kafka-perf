@@ -317,14 +317,14 @@
       "pluginVersion": "12.3.2+security-01",
       "targets": [
         {
-          "expr": "avg(kafka_cluster_cpu_percent{ })",
+          "expr": "avg(kafka_cluster_cpu_host_percent{ })",
           "fromExploreMetrics": false,
-          "legendFormat": "avg",
-          "refId": "kafka_cluster_cpu_percent-avg",
+          "legendFormat": "% of host CPU",
+          "refId": "kafka_cluster_cpu_host_percent-avg",
           "interval": "1m"
         }
       ],
-      "title": "Kafka Cluster CPU Usage (%)",
+      "title": "Kafka Cluster CPU (% of Host Cores)",
       "type": "timeseries"
     },
     {
