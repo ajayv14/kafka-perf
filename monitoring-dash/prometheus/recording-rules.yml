@@ -36,17 +36,17 @@ groups:
     expr: |-
       sum by(broker) (
         label_replace(
-          rate(container_cpu_usage_seconds_total{id=~"/docker/ac14e1b22f942e43ce56ba1da2a498618543d05199dd295b4bb98843b28a9b43"}[5m]) * 100,
+          rate(container_cpu_usage_seconds_total{id=~"/docker/eb89133e6713d59534cad8060c0dc1a504aa615100a1b9890972f544ee45954a"}[5m]) * 100,
           "broker", "kafka-1", "id", ".*"
         )
         or
         label_replace(
-          rate(container_cpu_usage_seconds_total{id=~"/docker/5e90c29f448d0c55bb3283ef1e30ede3bb6c3941965d45f6a1b3ca7064b61172"}[5m]) * 100,
+          rate(container_cpu_usage_seconds_total{id=~"/docker/b28a2bfc13fcebda950895c9b5d805fa79405c081cbcb374d0adee1bbfc3b4e4"}[5m]) * 100,
           "broker", "kafka-2", "id", ".*"
         )
         or
         label_replace(
-          rate(container_cpu_usage_seconds_total{id=~"/docker/8bef55052cd53582f2ad55eba63fc58ae515b94eafd9248e86fdd5071452a850"}[5m]) * 100,
+          rate(container_cpu_usage_seconds_total{id=~"/docker/11c2aba204cab1a5d0db3318092c490977a827b15436101e0edfd541875584ef"}[5m]) * 100,
           "broker", "kafka-3", "id", ".*"
         )
         or
@@ -64,6 +64,15 @@ groups:
   - record: kafka_cluster_cpu_percent
     expr: sum(kafka_broker_cpu_percent)
 
+  - record: kafka_cluster_cpu_cores
+    expr: kafka_cluster_cpu_percent / 100
+
+  - record: kafka_host_cpu_cores
+    expr: count(count by(cpu) (node_cpu_seconds_total{mode="idle"}))
+
+  - record: kafka_cluster_cpu_host_percent
+    expr: kafka_cluster_cpu_percent / kafka_host_cpu_cores
+
   - record: kafka_cluster_jvm_cpu_percent
     expr: avg(jvm_process_cpu_load_ratio) * 100
 
@@ -76,17 +85,17 @@ groups:
     expr: |-
       sum by(broker) (
         label_replace(
-          container_memory_usage_bytes{id=~"/docker/ac14e1b22f942e43ce56ba1da2a498618543d05199dd295b4bb98843b28a9b43"},
+          container_memory_usage_bytes{id=~"/docker/eb89133e6713d59534cad8060c0dc1a504aa615100a1b9890972f544ee45954a"},
           "broker", "kafka-1", "id", ".*"
         )
         or
         label_replace(
-          container_memory_usage_bytes{id=~"/docker/5e90c29f448d0c55bb3283ef1e30ede3bb6c3941965d45f6a1b3ca7064b61172"},
+          container_memory_usage_bytes{id=~"/docker/b28a2bfc13fcebda950895c9b5d805fa79405c081cbcb374d0adee1bbfc3b4e4"},
           "broker", "kafka-2", "id", ".*"
         )
         or
         label_replace(
-          container_memory_usage_bytes{id=~"/docker/8bef55052cd53582f2ad55eba63fc58ae515b94eafd9248e86fdd5071452a850"},
+          container_memory_usage_bytes{id=~"/docker/11c2aba204cab1a5d0db3318092c490977a827b15436101e0edfd541875584ef"},
           "broker", "kafka-3", "id", ".*"
         )
         or
@@ -104,7 +113,7 @@ groups:
   - record: kafka_cluster_container_memory_gb
     expr: |-
       sum(
-        container_memory_usage_bytes{id=~"/docker/(ac14e1b22f942e43ce56ba1da2a498618543d05199dd295b4bb98843b28a9b43|5e90c29f448d0c55bb3283ef1e30ede3bb6c3941965d45f6a1b3ca7064b61172|8bef55052cd53582f2ad55eba63fc58ae515b94eafd9248e86fdd5071452a850)"}
+        container_memory_usage_bytes{id=~"/docker/(eb89133e6713d59534cad8060c0dc1a504aa615100a1b9890972f544ee45954a|b28a2bfc13fcebda950895c9b5d805fa79405c081cbcb374d0adee1bbfc3b4e4|11c2aba204cab1a5d0db3318092c490977a827b15436101e0edfd541875584ef)"}
         or
         container_memory_usage_bytes{container_label_com_docker_compose_service=~"kafka-[0-9]+"}
         or
