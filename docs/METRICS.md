@@ -7,12 +7,14 @@ queries, and interpretation caveats.
 
 ## Scope
 
-The monitoring stack collects four categories of measurements:
+The monitoring stack and experiment runner collect five categories of measurements:
 
 1. Kafka broker throughput and health from the JMX exporter.
 2. Kafka container CPU and memory from cAdvisor.
 3. Host-level CPU and memory from Node Exporter.
 4. Audit lifecycle outcomes from the audit outcomes exporter.
+5. Producer, sink consumer, and audit aggregator process CPU/RSS from the
+   repeated experiment runner.
 
 This document focuses especially on CPU and memory because those metrics are
 easy to mislabel in papers.
@@ -125,6 +127,43 @@ Important metrics:
 | `audit_timeout_count_total` | Accumulated timeout counts from audit outcomes. |
 | `audit_partition_outcomes_total` | Partition-level count of audit outcomes. |
 
+### Experiment Runner Process Sampler
+
+File:
+
+- `experiments/run_repeated_experiments.py`
+
+Output per run:
+
+- `metrics/process_metrics.csv`
+- `metrics/process_metrics_summary.csv`
+- `metrics/process_metrics_summary.json`
+
+Campaign-level summaries:
+
+- `campaign_prometheus_summary.csv`
+- `campaign_process_summary.csv`
+
+The process sampler records CPU percentage and resident set size for each
+managed local Java process launched by the runner:
+
+- `producer`
+- `consumer-1`, `consumer-2`, `consumer-3`
+- `audit-aggregator` during audit runs
+
+This fills the attribution gap left by Prometheus. Prometheus/cAdvisor captures
+Docker containers such as Kafka and PostgreSQL, while the benchmark producer and
+consumers are host-launched Java processes. Host-level Node Exporter metrics
+include these Java processes, but do not identify them individually.
+
+Interpretation:
+
+- `cpu_percent` comes from `ps pcpu` for the managed process.
+- `rss_mb` is resident set size from `ps rss`, converted to MB.
+- `all-managed-processes` in the summary is the sum across producer, consumers,
+  and audit aggregator for each sample timestamp.
+- These values are sampled at the runner interval, which defaults to `5s`.
+
 ## Prometheus Timing
 
 File:
@@ -145,6 +184,8 @@ For paper reporting, state both:
 
 - collection cadence: `5s`
 - rate window: `5m`
+- process sampler cadence: `5s`, unless `run_repeated_experiments.py` is
+  invoked with a different `--process-sample-secs` value
 
 ## Throughput Metrics
 
@@ -171,8 +212,9 @@ File:
 
 ## CPU Metrics
 
-CPU is collected from two sources: cAdvisor and JMX. They answer different
-questions and should not be mixed without explanation.
+CPU is collected from cAdvisor, JMX, Node Exporter, and the runner process
+sampler. They answer different questions and should not be mixed without
+explanation.
 
 ### Container CPU From cAdvisor
 
@@ -327,7 +369,8 @@ Prefer one of these:
 
 ### Recommended CPU Metric For Paper Comparisons
 
-For fault-scenario comparisons, use one of these consistently:
+For the three-run overhead comparison, report both infrastructure CPU and
+managed workload process CPU:
 
 1. Host-normalized Kafka CPU:
 
@@ -354,6 +397,16 @@ kafka_cluster_jvm_cpu_percent
 
 This gives average Kafka JVM process CPU load as a percent-like ratio.
 
+4. Managed Java workload CPU:
+
+```text
+metrics/process_metrics_summary.csv
+process=all-managed-processes, metric=cpu_percent
+```
+
+This captures the local producer, sink consumers, and audit aggregator launched
+by the runner. It is the best current signal for application-side CPU overhead.
+
 If comparing across machines or runs, subtract an idle baseline:
 
 ```text
@@ -366,7 +419,8 @@ hardware and background load.
 
 ## Memory Metrics
 
-Memory is collected from two sources: cAdvisor and JMX.
+Memory is collected from cAdvisor, JMX, Node Exporter, and the runner process
+sampler.
 
 ### Container Memory From cAdvisor
 
@@ -432,7 +486,7 @@ by your Docker runtime before using it as a denominator in the paper.
 
 ### Recommended Memory Metrics For Paper Comparisons
 
-Use both container and JVM memory, but label them separately:
+Use container, JVM, and managed-process memory, but label them separately:
 
 1. Container memory:
 
@@ -457,6 +511,16 @@ sum(jvm_non_heap_used_bytes) / 1073741824
 ```
 
 Use this to separate heap from JVM metadata and native/non-heap pressure.
+
+4. Managed Java workload RSS:
+
+```text
+metrics/process_metrics_summary.csv
+process=all-managed-processes, metric=rss_mb
+```
+
+Use this for local producer/consumer/audit application memory. It is separate
+from Kafka broker container memory and PostgreSQL container memory.
 
 For fault-scenario comparisons, subtract idle baseline:
 
@@ -512,7 +576,9 @@ Recommended wording:
 > Kafka broker CPU was normalized by the number of host CPU cores visible to
 > Node Exporter and reported as a percentage of available host cores. Memory is
 > reported as combined Kafka broker container memory usage from cAdvisor, with
-> JVM heap and non-heap memory available separately from JMX.
+> JVM heap and non-heap memory available separately from JMX. Producer,
+> consumer, and audit-aggregator process CPU/RSS were sampled by the experiment
+> runner during the measured window.
 
 If you use idle-baseline subtraction:
 

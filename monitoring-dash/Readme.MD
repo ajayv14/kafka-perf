@@ -22,6 +22,11 @@
 │  │ Node Exporter :9100      │──┼────────>│                              │
 │  │ (Host metrics)           │  │         │                              │
 │  └──────────────────────────┘  │         │                              │
+│                                 │         │                              │
+│  ┌──────────────────────────┐  │         │                              │
+│  │ Kafka Exporter :9308     │──┼────────>│                              │
+│  │ (Consumer group lag)     │  │         │                              │
+│  └──────────────────────────┘  │         │                              │
 └─────────────────────────────────┘         └──────────────────────────────┘
 
 
@@ -59,7 +64,7 @@ datasources:
     editable: true
 EOF
 
-# Step 4: Start Prometheus and Grafana
+# Step 4: Start Kafka exporter, Prometheus and Grafana
 bash
 
 docker-compose -f docker-compose-monitoring.yml up -d
@@ -75,6 +80,10 @@ bash
 # Check Prometheus targets
 curl http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | {job: .labels.job, state: .health}'
 All targets should show "state": "up"
+
+# Check consumer lag metric is present
+curl -G 'http://localhost:9090/api/v1/query' \
+  --data-urlencode 'query=kafka_consumergroup_lag' | jq .
 
 # Step 6: Access Grafana
 
@@ -93,6 +102,7 @@ bash
 curl http://<KAFKA_MACHINE_IP>:8080/metrics | head -10
 curl http://<KAFKA_MACHINE_IP>:9100/metrics | head -10
 curl http://<KAFKA_MACHINE_IP>:7071/metrics | grep kafka_process_cpu
+curl http://<KAFKA_MACHINE_IP>:9308/metrics | grep kafka_consumergroup_lag
 
 # Query Prometheus for data
 curl -G 'http://localhost:9090/api/v1/query' \
@@ -102,4 +112,5 @@ Expected Results:
 You should see CPU metrics from all 3 Kafka brokers
 Container CPU usage for kafka-1, kafka-2, kafka-3
 Host system CPU metrics
+Consumer group lag metrics from kafka-exporter
 No errors in Prometheus targets page
